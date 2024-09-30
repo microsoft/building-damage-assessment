@@ -41,8 +41,8 @@ The Microsoft AI for Good Lab has used this workflow to help our partners respon
 - The Turkey/Syria Earthquakes in March, 2023 ([report](https://www.microsoft.com/en-us/research/uploads/prod/2023/02/Turkey-Earthquake-Report-2_MS.pdf))
 - The tornadoes in Rolling Fork, Mississippi in April, 2023 ([paper](https://arxiv.org/abs/2306.12589))
 - The Maui wildfires in August, 2023 ([visualizer](https://aka.ms/lahaina_damage))
-- The Morocco Earthquake in September, 2023
 - The flooding in Libya in September, 2023 ([visualizer](https://aka.ms/libya_derna_flooding_2023))
+- Hurricane Beryl in the Carribean in July, 2024 ([visualizer](https://aka.ms/grenada_hurricane_beryl_07_02_2024))
 
 
 ## Contributing
