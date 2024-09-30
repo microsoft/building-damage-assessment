@@ -1,0 +1,24 @@
+name: bda
+channels:
+  - conda-forge
+dependencies:
+  - gdal<3.9
+  - python<3.11
+  - pip
+  - pip:
+    - adlfs
+    - azure-storage-blob
+    - dask_geopandas
+    - deltalake
+    - geopandas
+    - jupyter
+    - mercantile>=1.2
+    - osmnx
+    - pigeon-jupyter
+    - planetary_computer
+    - pyarrow
+    - rasterio<1.4  # recent rasterio is incompatible with torchgeo
+    - s3fs
+    - scikit-learn
+    - tensorboard
+    - torchgeo[all]<0.6
