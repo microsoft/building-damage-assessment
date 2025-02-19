@@ -14,7 +14,8 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
     """A custom trainer for semantic segmentation tasks."""
 
     def __init__(self, *args, **kwargs):
-        del kwargs["ignore"]  # workaround for https://github.com/microsoft/torchgeo/pull/2314, can be removed with torchgeo 0.7
+        if "ignore" in kwargs:
+            del kwargs["ignore"]  # workaround for https://github.com/microsoft/torchgeo/pull/2314, can be removed with torchgeo 0.7
         super().__init__(*args, **kwargs)
 
         self.train_augs = K.AugmentationSequential(
