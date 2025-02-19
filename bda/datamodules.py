@@ -2,15 +2,14 @@
 # Licensed under the MIT License.
 
 """Custom lightning datamodules."""
+import os
 
-import kornia.augmentation as K
 import matplotlib.pyplot as plt
 import numpy as np
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
-from torchgeo.datasets import RasterDataset, stack_samples
-from torchgeo.samplers import RandomBatchGeoSampler
-from torchgeo.transforms import AugmentationSequential
+from .datasets import TileDataset, stack_samples
+from .samplers import RandomGeoSampler
 
 from .preprocess import Preprocessor
 
@@ -33,8 +32,6 @@ class SegmentationDataModule(LightningDataModule):
         """Initialize the SegmentationDataModule class."""
         super().__init__()
 
-        self.image_fn_root = image_fn_root
-        self.mask_fn_root = mask_fn_root
         self.batch_size = batch_size
         self.patch_size = patch_size
         self.num_workers = num_workers
@@ -46,52 +43,49 @@ class SegmentationDataModule(LightningDataModule):
 
         self.preprocess = Preprocessor(training_mode=True, means=means, stds=stds)
 
-        self.train_aug = AugmentationSequential(
-            K.RandomRotation(p=0.5, degrees=90),
-            K.RandomHorizontalFlip(p=0.5),
-            K.RandomVerticalFlip(p=0.5),
-            K.RandomSharpness(p=0.5),
-            data_keys=["image", "mask"],
-        )
+        self.image_fns = []
+        self.mask_fns = []
+        for fn in os.listdir(image_fn_root):
+            if fn.endswith(".tif"):
+                self.image_fns.append([os.path.join(image_fn_root, fn)])
+                mask_fn = os.path.join(mask_fn_root, fn.replace("_cropped.tif", "_buffered.tif"))
+                assert os.path.exists(mask_fn)
+                self.mask_fns.append(mask_fn)
+
 
     def setup(self, stage=None):
         """Set up the datasets."""
         print(f"setting up {stage}")
-        self.image_ds = RasterDataset(self.image_fn_root, transforms=self.preprocess)
-
-        self.mask_ds = RasterDataset(self.mask_fn_root, transforms=self.preprocess)
-        self.mask_ds.is_image = False
-
-        self.ds = self.image_ds & self.mask_ds
+        self.ds = TileDataset(self.image_fns, self.mask_fns, transforms=self.preprocess, sanity_check=True)
 
     def train_dataloader(self):
         """Set up the train dataloader."""
-        sampler = RandomBatchGeoSampler(
-            self.ds,
-            size=self.patch_size,
-            batch_size=self.batch_size,
+        sampler = RandomGeoSampler(
+            self.image_fns,
             length=self.train_batches_per_epoch * self.batch_size,
+            patch_size=self.patch_size
         )
 
         return DataLoader(
             self.ds,
-            batch_sampler=sampler,
+            sampler=sampler,
+            batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
         )
 
     def val_dataloader(self):
         """Set up the val dataloader."""
-        sampler = RandomBatchGeoSampler(
-            self.ds,
-            size=self.patch_size,
-            batch_size=self.batch_size,
+        sampler = RandomGeoSampler(
+            self.image_fns,
             length=self.val_batches_per_epoch * self.batch_size,
+            patch_size=self.patch_size
         )
 
         return DataLoader(
             self.ds,
-            batch_sampler=sampler,
+            sampler=sampler,
+            batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
         )
@@ -118,10 +112,3 @@ class SegmentationDataModule(LightningDataModule):
             axs[2].axis("off")
 
         return fig
-
-    def on_after_batch_transfer(self, batch, dataloader_idx):
-        """Runs augmentation when in training mode."""
-        if self.trainer:
-            if self.trainer.training:
-                batch = self.train_aug(batch)
-        return batch

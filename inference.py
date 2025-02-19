@@ -14,11 +14,10 @@ import torch
 import tqdm
 from rasterio.enums import ColorInterp
 from torch.utils.data import DataLoader
-from torchgeo.datasets import stack_samples
-from torchgeo.samplers import GridGeoSampler
 
 from bda.config import get_args
-from bda.datasets import SingleRasterDataset
+from bda.datasets import TileDataset, stack_samples
+from bda.samplers import GridGeoSampler
 from bda.preprocess import Preprocessor
 from bda.trainers import CustomSemanticSegmentationTask
 
@@ -94,7 +93,7 @@ def main() -> None:
 
     # Load task and data
     tic = time.time()
-    task = CustomSemanticSegmentationTask.load_from_checkpoint(input_model_checkpoint)
+    task = CustomSemanticSegmentationTask.load_from_checkpoint(input_model_checkpoint, map_location="cpu")
     task.freeze()
     model = task.model
     model = model.eval().to(device)
@@ -105,13 +104,13 @@ def main() -> None:
         stds=args["imagery"]["normalization_stds"],
     )
 
-    dataset = SingleRasterDataset(input_image_fn, transforms=preprocess)
-    sampler = GridGeoSampler(dataset, size=patch_size, stride=stride)
+    dataset = TileDataset([[input_image_fn]], mask_fns=None, transforms=preprocess)
+    sampler = GridGeoSampler([[input_image_fn]], [0], patch_size=patch_size, stride=stride)
     dataloader = DataLoader(
         dataset,
         sampler=sampler,
         batch_size=args["inference"]["batch_size"],
-        num_workers=6,
+        num_workers=12,
         collate_fn=stack_samples,
     )
 
@@ -120,7 +119,6 @@ def main() -> None:
     with rasterio.open(input_image_fn) as f:
         input_height, input_width = f.shape
         profile = f.profile
-        transform = profile["transform"]
 
     print(f"Input size: {input_height} x {input_width}")
     assert patch_size <= input_height
@@ -132,49 +130,20 @@ def main() -> None:
 
     for batch in dl_enumerator:
         images = batch["image"].to(device)
-        bboxes = batch["bbox"]
+        x_coords = batch["x"]
+        y_coords = batch["y"]
+        batch_size = images.shape[0]
         with torch.inference_mode():
+            print("Batch inference started")
             predictions = task(images)
-            predictions = predictions.argmax(axis=1).cpu().numpy()
+            print("Batch inference finished")
+            predictions = predictions.argmax(axis=1).cpu().numpy().astype(np.uint8)
 
-        for i in range(len(bboxes)):
-            bb = bboxes[i]
-
-            left, top = ~transform * (bb.minx, bb.maxy)
-            right, bottom = ~transform * (bb.maxx, bb.miny)
-            left, right, top, bottom = (
-                int(np.round(left)),
-                int(np.round(right)),
-                int(np.round(top)),
-                int(np.round(bottom)),
-            )
-            assert right - left == patch_size
-            assert bottom - top == patch_size
-
-            destination_height, destination_width = output[
-                top + padding : bottom - padding, left + padding : right - padding
-            ].shape
-            if (
-                destination_height < patch_size - padding * 2
-                and destination_width < patch_size - padding * 2
-            ):
-                inp = predictions[i][
-                    padding : destination_height + padding,
-                    padding : destination_width + padding,
-                ]
-            elif destination_height < patch_size - padding * 2:
-                inp = predictions[i][
-                    padding : destination_height + padding, padding:-padding
-                ]
-            elif destination_width < patch_size - padding * 2:
-                inp = predictions[i][
-                    padding:-padding, padding : destination_width + padding
-                ]
-            else:
-                inp = predictions[i][padding:-padding, padding:-padding]
-            output[
-                top + padding : bottom - padding, left + padding : right - padding
-            ] = inp
+        for i in range(batch_size):
+            height, width = predictions[i].shape
+            y = int(y_coords[i])
+            x = int(x_coords[i])
+            output[y:y+height, x:x+width] = predictions[i]
 
     print(f"Finished running model in {time.time()-tic:0.2f} seconds")
 
