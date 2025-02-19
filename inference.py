@@ -134,16 +134,14 @@ def main() -> None:
         y_coords = batch["y"]
         batch_size = images.shape[0]
         with torch.inference_mode():
-            print("Batch inference started")
             predictions = task(images)
-            print("Batch inference finished")
             predictions = predictions.argmax(axis=1).cpu().numpy().astype(np.uint8)
 
         for i in range(batch_size):
             height, width = predictions[i].shape
             y = int(y_coords[i])
             x = int(x_coords[i])
-            output[y:y+height, x:x+width] = predictions[i]
+            output[y+padding:y+height-padding, x+padding:x+width-padding] = predictions[i][padding:-padding, padding:-padding]
 
     print(f"Finished running model in {time.time()-tic:0.2f} seconds")
 
