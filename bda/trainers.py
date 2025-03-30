@@ -5,6 +5,7 @@
 
 from typing import Any
 from torch import Tensor
+import torch.nn.functional as F
 from lightning.pytorch.callbacks import Callback
 from torchgeo.trainers import SemanticSegmentationTask
 import kornia.augmentation as K
@@ -13,10 +14,12 @@ import kornia.augmentation as K
 class CustomSemanticSegmentationTask(SemanticSegmentationTask):
     """A custom trainer for semantic segmentation tasks."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, use_constraint_loss=False, **kwargs):
         if "ignore" in kwargs:
             del kwargs["ignore"]  # workaround for https://github.com/microsoft/torchgeo/pull/2314, can be removed with torchgeo 0.7
         super().__init__(*args, **kwargs)
+
+        self.use_constraint_loss = use_constraint_loss
 
         self.train_augs = K.AugmentationSequential(
             K.RandomRotation(p=0.5, degrees=90),
@@ -49,9 +52,24 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
         batch = self.train_augs(batch)
         x = batch['image']
         y = batch['mask']
+
         batch_size = x.shape[0]
         y_hat = self(x)
-        loss: Tensor = self.criterion(y_hat, y)
+
+        if self.use_constraint_loss:
+            ce_loss = F.cross_entropy(y_hat, y, ignore_index=0, reduction='none')
+            standard_mask = (y > 0) & (y < 4)
+            loss = ce_loss[standard_mask].mean()
+
+            constraint_mask = (y == 4)
+            if constraint_mask.any():
+                probs = F.softmax(y_hat, dim=1)
+                penalty = probs[:, 3, :, :][constraint_mask]
+                constraint_loss = penalty.mean()
+                loss = loss + constraint_loss
+        else:
+            loss = self.criterion(y_hat, y)
+
         self.log('train_loss', loss, batch_size=batch_size)
         self.train_metrics(y_hat, y)
         self.log_dict(self.train_metrics, batch_size=batch_size)

@@ -31,6 +31,7 @@ _DEFAULT_CONFIG = {
         "gpu_id": int,
         "log_dir": str,
         "checkpoint_subdir": str,
+        "use_constraint_loss": bool,
     },
     "inference": {
         "output_subdir": str,
