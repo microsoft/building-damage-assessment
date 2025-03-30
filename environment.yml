@@ -12,13 +12,13 @@ dependencies:
     - deltalake
     - geopandas
     - jupyter
-    - mercantile>=1.2
+    - mercantile
     - osmnx
     - pigeon-jupyter
     - planetary_computer
     - pyarrow
-    - rasterio<1.4  # recent rasterio is incompatible with torchgeo
+    - rasterio
     - s3fs
     - scikit-learn
     - tensorboard
-    - torchgeo[all]<0.6
+    - torchgeo[all]

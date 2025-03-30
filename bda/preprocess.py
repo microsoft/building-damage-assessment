@@ -43,4 +43,8 @@ class Preprocessor(object):
             del sample["bbox"]
         if self.training_mode and "bounds" in sample:  # for torchgeo >= 0.6
             del sample["bounds"]
+
+        if not self.training_mode and "bbox" in sample:  # for torchgeo >= 0.6
+            sample["bounds"] = sample["bbox"]
+
         return sample
