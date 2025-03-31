@@ -38,6 +38,7 @@ training:
   gpu_id: 0
   log_dir: logs/
   checkpoint_subdir: checkpoints/
+  use_constraint_loss: false
 
 inference:
   output_subdir: "outputs/"
