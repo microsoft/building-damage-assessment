@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 """Custom lightning datamodules."""
+
 import os
 
 import matplotlib.pyplot as plt
@@ -48,22 +49,25 @@ class SegmentationDataModule(LightningDataModule):
         for fn in os.listdir(image_fn_root):
             if fn.endswith(".tif"):
                 self.image_fns.append([os.path.join(image_fn_root, fn)])
-                mask_fn = os.path.join(mask_fn_root, fn.replace("_cropped.tif", "_buffered.tif"))
+                mask_fn = os.path.join(
+                    mask_fn_root, fn.replace("_cropped.tif", "_buffered.tif")
+                )
                 assert os.path.exists(mask_fn)
                 self.mask_fns.append(mask_fn)
-
 
     def setup(self, stage=None):
         """Set up the datasets."""
         print(f"setting up {stage}")
-        self.ds = TileDataset(self.image_fns, self.mask_fns, transforms=self.preprocess, sanity_check=True)
+        self.ds = TileDataset(
+            self.image_fns, self.mask_fns, transforms=self.preprocess, sanity_check=True
+        )
 
     def train_dataloader(self):
         """Set up the train dataloader."""
         sampler = RandomGeoSampler(
             self.image_fns,
             length=self.train_batches_per_epoch * self.batch_size,
-            patch_size=self.patch_size
+            patch_size=self.patch_size,
         )
 
         return DataLoader(
@@ -79,7 +83,7 @@ class SegmentationDataModule(LightningDataModule):
         sampler = RandomGeoSampler(
             self.image_fns,
             length=self.val_batches_per_epoch * self.batch_size,
-            patch_size=self.patch_size
+            patch_size=self.patch_size,
         )
 
         return DataLoader(

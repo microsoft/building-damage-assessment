@@ -9,6 +9,7 @@ area covered by satellite imagery.
 
 NOTE: The output GeoJSON will be saved in EPSG:4326, regardless of the input CRS.
 """
+
 import argparse
 import os
 import sys

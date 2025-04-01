@@ -31,7 +31,10 @@ def set_up_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--output_fn", required=True, type=str, help="Output filename for footprints (should end with .gpkg)"
+        "--output_fn",
+        required=True,
+        type=str,
+        help="Output filename for footprints (should end with .gpkg)",
     )
 
     parser.add_argument(
@@ -73,7 +76,6 @@ def get_coordinates(input_fn):
     return shapely.geometry.shape(warped_geom)
 
 
-
 def save_footprints(footprints, output_dir, footprint_source, country_code):
     """Saves building footprints to a desired location.
 
@@ -108,7 +110,6 @@ def main(args):
         print(f"Overwriting existing file '{output_fn}'")
         os.remove(output_fn)
 
-
     # Get AOI from input file
     shape = get_coordinates(args.input_fn)
 
@@ -123,9 +124,8 @@ def main(args):
     footprints.set_crs(epsg=4326, inplace=True)
     footprints.to_file(output_fn, driver="GPKG")
 
-    print(
-        f"{footprints.shape[0]} building footprints found and saved to {output_fn}"
-    )
+    print(f"{footprints.shape[0]} building footprints found and saved to {output_fn}")
+
 
 if __name__ == "__main__":
     parser = set_up_parser()

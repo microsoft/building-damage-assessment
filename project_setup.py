@@ -233,12 +233,14 @@ def main():
                 grid = shapely.geometry.mapping(grid)
                 if shape.intersects(shapely.geometry.shape(grid)):
                     t_output_fn = output_fn.replace("_task.json", f"_task_{i}.json")
-                    t_geom = rasterio.warp.transform_geom("EPSG:3857", "EPSG:4326", grid)
+                    t_geom = rasterio.warp.transform_geom(
+                        "EPSG:3857", "EPSG:4326", grid
+                    )
                     generate_task_file(
                         output_fn=t_output_fn,
                         geom=t_geom,
                         xyz_url=xyz_url,
-                        experiment_name=experiment_name
+                        experiment_name=experiment_name,
                     )
                     output_fns.append(t_output_fn)
                     i += 1

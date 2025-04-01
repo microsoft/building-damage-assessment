@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 """Custom datasets."""
+
 import os
 from typing import List, Callable, Optional
 
@@ -49,7 +50,13 @@ def stack_samples(samples):
 
 
 class TileDataset(Dataset):
-    def __init__(self, image_fns: List[str], mask_fns: List[str], transforms=None, sanity_check=True):
+    def __init__(
+        self,
+        image_fns: List[str],
+        mask_fns: List[str],
+        transforms=None,
+        sanity_check=True,
+    ):
         self.image_fns = image_fns
         self.mask_fns = mask_fns
         if self.mask_fns is not None:

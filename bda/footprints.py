@@ -12,17 +12,19 @@ import pyarrow.fs as fs
 import fsspec
 
 # Allows for optional import of additional dependencies
-try: 
+try:
     import geopandas as gpd
     from geopandas import GeoDataFrame
+
     HAS_GEOPANDAS = True
 except ImportError:
     HAS_GEOPANDAS = False
     GeoDataFrame = None
 
+
 def record_batch_reader(overture_type, bbox=None) -> Optional[pa.RecordBatchReader]:
     """
-    Return a pyarrow RecordBatchReader for the desired bounding box and s3 path
+    Return a pyarrow RecordBatchReader for the desired bounding box and Azure path
     """
     path = _dataset_path(overture_type)
 
@@ -37,16 +39,10 @@ def record_batch_reader(overture_type, bbox=None) -> Optional[pa.RecordBatchRead
     else:
         filter = None
 
-    t_fs = fsspec.filesystem(
-        "az",
-        account_name="overturemapswestus2",
-        anon=True
-    )
+    t_fs = fsspec.filesystem("az", account_name="overturemapswestus2", anon=True)
     pa_fs = fs.PyFileSystem(fs.FSSpecHandler(t_fs))
 
-    dataset = ds.dataset(
-        path, filesystem=pa_fs
-    )
+    dataset = ds.dataset(path, filesystem=pa_fs)
     batches = dataset.to_batches(filter=filter)
 
     # to_batches() can yield many batches with no rows. I've seen
@@ -61,7 +57,10 @@ def record_batch_reader(overture_type, bbox=None) -> Optional[pa.RecordBatchRead
     reader = pa.RecordBatchReader.from_batches(geoarrow_schema, non_empty_batches)
     return reader
 
-def geodataframe(overture_type: str, bbox: (float, float, float, float) = None) -> GeoDataFrame:
+
+def geodataframe(
+    overture_type: str, bbox: (float, float, float, float) = None
+) -> GeoDataFrame:
     """
     Loads geoparquet for specified type into a geopandas dataframe
 
@@ -80,6 +79,7 @@ def geodataframe(overture_type: str, bbox: (float, float, float, float) = None) 
 
     reader = record_batch_reader(overture_type, bbox)
     return gpd.GeoDataFrame.from_arrow(reader)
+
 
 def geoarrow_schema_adapter(schema: pa.Schema) -> pa.Schema:
     """
@@ -128,17 +128,13 @@ type_theme_map = {
 }
 
 
-def _dataset_path(overture_type: str) -> str:
+def _dataset_path(overture_type: str, release: str = "2025-03-19.0") -> str:
     """
-    Returns the s3 path of the Overture dataset to use. This assumes overture_type has
-    been validated, e.g. by the CLI
-
+    Returns the Azure blob storage container and path of the Overture dataset to use.
+    This assumes overture_type has been validated, e.g. by the CLI
     """
-    # Map of sub-partition "type" to parent partition "theme" for forming the
-    # complete s3 path. Could be discovered by reading from the top-level s3
-    # location but this allows to only read the files in the necessary partition.
     theme = type_theme_map[overture_type]
-    return f"release/2025-03-19.0/theme={theme}/type={overture_type}/"
+    return f"release/{release}/theme={theme}/type={overture_type}/"
 
 
 def get_all_overture_types() -> List[str]:
