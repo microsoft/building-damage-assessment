@@ -78,7 +78,7 @@ def main():
     schema = {"geometry": "Polygon", "properties": {"id": "int"}}
 
     with fiona.open(
-        args.output_fn, "w", driver="GPKG", crs="EPSG:4326", schema=schema
+        args.output_fn, "w", driver="GeoJSON", crs="EPSG:4326", schema=schema
     ) as f:
         for i, geom in enumerate(geoms):
             shape = shapely.geometry.shape(geom)
