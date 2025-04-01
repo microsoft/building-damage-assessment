@@ -10,6 +10,7 @@ dependencies:
     - azure-storage-blob
     - dask_geopandas
     - deltalake
+    - fsspec
     - geopandas
     - jupyter
     - mercantile
@@ -18,7 +19,6 @@ dependencies:
     - planetary_computer
     - pyarrow
     - rasterio
-    - s3fs
     - scikit-learn
     - tensorboard
     - torchgeo[all]

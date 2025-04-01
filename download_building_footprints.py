@@ -1,24 +1,16 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
-"""Script for download building footprints from Microsoft, OSM, and Google."""
+"""Script for download building footprints from Overture Maps."""
 
 import argparse
 import os
-import time
 
-import dask_geopandas
-import deltalake
+from bda.footprints import geodataframe
+
 import fiona
 import fiona.transform
-import geopandas as gpd
-import mercantile
-import osmnx as ox
-import planetary_computer
-import pyarrow.parquet as pq
-import pystac_client
 import rasterio
-import s3fs
 import shapely
 
 
@@ -33,35 +25,15 @@ def set_up_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--source",
-        required=True,
-        type=str,
-        choices=["microsoft", "osm", "google"],
-        help="Options: microsoft, osm, google",
-    )
-
-    parser.add_argument(
         "--input_fn",
         type=str,
         help="Input geofile name for aoi. Options: .tif, .shp, .geojson, .gpkg",
     )
 
     parser.add_argument(
-        "--output_dir", required=True, type=str, help="Location to building footprints"
+        "--output_fn", required=True, type=str, help="Output filename for footprints (should end with .gpkg)"
     )
 
-    parser.add_argument(
-        "--country_alpha2_iso_code",
-        required=True,
-        type=str,
-        help="Country Alpha2 ISO code (https://en.wikipedia.org/wiki/List_of_ISO_3166_country_codes)",
-    )
-    parser.add_argument(
-        "--country_name",
-        required=False,
-        type=str,
-        help="Country name to use for Microsoft footprints download (optional, overrides the ISO2 code if set))",
-    )
     parser.add_argument(
         "--overwrite", action="store_true", help="Overwrite existing files"
     )
@@ -69,15 +41,15 @@ def set_up_parser() -> argparse.ArgumentParser:
 
 
 def get_coordinates(input_fn):
-    """Get coordinates from a GEOJSON or GEOTIFF from AOI.
+    """Get bounds coordinates from a GeoJSON or GeoTIFF.
 
     Args:
-        input_fn (str): Input filename to extract geographic coordinates
+        input_fn (str): Input filename extract geographic coordinates
 
     Returns:
-        geom (geopandas dataframe): Shapely geom for aoi
+        geom (geopandas dataframe): Shapely geom for AOI in EPSG:4326
     """
-    if input_fn.endswith("tif"):
+    if input_fn.endswith(".tif"):
         print("Input filename is a GeoTIFF, using the bounds of the file as the AOI")
         with rasterio.open(input_fn) as f:
             shape = shapely.geometry.box(
@@ -100,96 +72,6 @@ def get_coordinates(input_fn):
 
     return shapely.geometry.shape(warped_geom)
 
-
-def get_microsoft_building_footprints(geom):
-    """Searches Planetary Computer catalogue and returns Microsoft footprints for the AOI.
-
-    Args:
-        geom (polygon): Shapely geom for aoi
-
-    Returns:
-         buildings (geopandas dataframe): Set of polygons found for the aoi
-    """
-    catalog = pystac_client.Client.open(
-        "https://planetarycomputer.microsoft.com/api/stac/v1",
-        modifier=planetary_computer.sign_inplace,
-    )
-
-    quadkeys = [
-        int(mercantile.quadkey(tile))
-        for tile in mercantile.tiles(*geom.bounds, zooms=9)
-    ]
-
-    collection = catalog.get_collection("ms-buildings")
-    asset = collection.assets["delta"]
-
-    storage_options = {
-        "account_name": asset.extra_fields["table:storage_options"]["account_name"],
-        "sas_token": asset.extra_fields["table:storage_options"]["credential"],
-    }
-    table = deltalake.DeltaTable(asset.href, storage_options=storage_options)
-
-    file_uris = table.file_uris([("quadkey", "in", quadkeys)])
-
-    all_buildings = dask_geopandas.read_parquet(
-        file_uris, storage_options=storage_options
-    ).compute()
-
-    # select valid polygons (sometimes sthe polygons are invalid)
-    all_buildings["valid"] = all_buildings.geometry.apply(lambda x: x.is_valid)
-
-    buildings = all_buildings[all_buildings["valid"]].clip(geom)
-    if buildings.empty:
-        return None
-
-    buildings.drop(columns=["RegionName", "quadkey"], inplace=True)
-    return buildings
-
-
-def get_google_building_footprints(geom, country_iso):
-    """Searches the Source Coop s3 buckets and returns Google footprints for the AOI.
-
-    Source: https://beta.source.coop/repositories/cholmes/google-open-buildings/description
-
-    Args:
-        geom (polygon): Shapely geom for aoi
-        country_iso (str): Country ISO string
-
-    Returns:
-        buildings (geopandas dataframe): Set of polygons found for the aoi
-    """
-    s3_path = f"s3://us-west-2.opendata.source.coop/google-research-open-buildings/v3/geoparquet-by-country/country_iso={country_iso}/{country_iso}.parquet"
-    s3 = s3fs.S3FileSystem(anon=True)
-    try:
-        all_buildings = pq.ParquetDataset(s3_path, filesystem=s3).read().to_pandas()
-    except Exception as err:
-        print(f"No footprints for {err}")
-        return None
-    all_buildings.geometry = all_buildings.geometry.apply(
-        lambda x: shapely.wkb.loads(x)
-    )
-    all_buildings = gpd.GeoDataFrame(all_buildings, geometry=all_buildings.geometry)
-    buildings = all_buildings.clip(geom)
-    return buildings
-
-
-def get_osm_building_footprints(geom):
-    """Searches OSM database and returns OSM building footprints for the AOI.
-
-    Args:
-        geom (polygon): Shapely geom for aoi
-
-    Returns:
-        buildings (geopandas dataframe): Set of polygons found for the aoi
-    """
-    tags = {"building": True}
-    try:
-        buildings = ox.features_from_polygon(geom.envelope, tags)
-        buildings = buildings.clip(geom)
-        return buildings[["building", "name", "geometry"]]
-    except Exception as err:
-        print(f"No footprints for {err}")
-        return None
 
 
 def save_footprints(footprints, output_dir, footprint_source, country_code):
@@ -215,37 +97,26 @@ def main(args):
     Args:
         args (dict): Set of input arguments
     """
-    start_time = time.time()
-    # Handle inputs
-    output_fn = os.path.join(
-        args.output_dir,
-        f"{args.country_alpha2_iso_code}_{args.source}_buildings_footprints.gpkg",
-    )
+    assert args.output_fn.endswith(".gpkg"), "Output filename must end with .gpkg"
+    output_fn = args.output_fn
     if os.path.exists(output_fn) and not args.overwrite:
         print(
             f"Output file '{output_fn}' already exists, specify `--overwrite` to overwrite it."
         )
         return
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir, exist_ok=True)
+    if os.path.exists(output_fn) and args.overwrite:
+        print(f"Overwriting existing file '{output_fn}'")
+        os.remove(output_fn)
+
 
     # Get AOI from input file
-    geom = get_coordinates(args.input_fn)
+    shape = get_coordinates(args.input_fn)
 
     # Get footprints
-    if args.source == "microsoft":
-        footprints = get_microsoft_building_footprints(geom)
-    elif args.source == "osm":
-        footprints = get_osm_building_footprints(geom)
-    elif args.source == "google":
-        footprints = get_google_building_footprints(geom, args.country_alpha2_iso_code)
-
-    if footprints is None:
-        print(f"No {args.source} building footprints found for the AOI")
-        return
+    footprints = geodataframe("building", shape.bounds)
 
     # Save footprints
-    print(footprints.shape)
+    footprints = footprints[["id", "geometry", "subtype", "class"]]
     footprints = footprints[
         footprints.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
     ]
@@ -253,12 +124,8 @@ def main(args):
     footprints.to_file(output_fn, driver="GPKG")
 
     print(
-        f"{footprints.shape[0]} {args.source} building footprints found\
-        and saved in {args.output_dir}"
+        f"{footprints.shape[0]} building footprints found and saved to {output_fn}"
     )
-    end_time = time.time()
-    print(f"Bldg footprint download took {end_time - start_time} seconds")
-
 
 if __name__ == "__main__":
     parser = set_up_parser()
