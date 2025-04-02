@@ -97,7 +97,7 @@ def main() -> None:
         ignore_index=0,  # we use 0 as a "not labeled" class by convention
         lr=args["training"]["learning_rate"],
         patience=10,
-        use_constraint_loss=args["training"]["use_constraint_loss"]
+        use_constraint_loss=args["training"]["use_constraint_loss"],
     )
 
     checkpoint_callback = ModelCheckpoint(

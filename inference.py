@@ -93,7 +93,9 @@ def main() -> None:
 
     # Load task and data
     tic = time.time()
-    task = CustomSemanticSegmentationTask.load_from_checkpoint(input_model_checkpoint, map_location="cpu")
+    task = CustomSemanticSegmentationTask.load_from_checkpoint(
+        input_model_checkpoint, map_location="cpu"
+    )
     task.freeze()
     model = task.model
     model = model.eval().to(device)
@@ -105,7 +107,9 @@ def main() -> None:
     )
 
     dataset = TileDataset([[input_image_fn]], mask_fns=None, transforms=preprocess)
-    sampler = GridGeoSampler([[input_image_fn]], [0], patch_size=patch_size, stride=stride)
+    sampler = GridGeoSampler(
+        [[input_image_fn]], [0], patch_size=patch_size, stride=stride
+    )
     dataloader = DataLoader(
         dataset,
         sampler=sampler,
@@ -141,7 +145,9 @@ def main() -> None:
             height, width = predictions[i].shape
             y = int(y_coords[i])
             x = int(x_coords[i])
-            output[y+padding:y+height-padding, x+padding:x+width-padding] = predictions[i][padding:-padding, padding:-padding]
+            output[
+                y + padding : y + height - padding, x + padding : x + width - padding
+            ] = predictions[i][padding:-padding, padding:-padding]
 
     print(f"Finished running model in {time.time()-tic:0.2f} seconds")
 
