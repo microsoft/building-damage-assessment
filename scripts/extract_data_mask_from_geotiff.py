@@ -51,7 +51,7 @@ def main():
         os.remove(args.output_fn)
 
     output_dir = os.path.dirname(args.output_fn)
-    if not os.path.exists(output_dir):
+    if not os.path.exists(output_dir) and output_dir != "":
         os.makedirs(output_dir, exist_ok=True)
 
     # Read input
@@ -66,14 +66,29 @@ def main():
 
     features = list(rasterio.features.shapes(mask, transform=transform))
     geoms = []
+    areas = []
     for geom, val in features:
         if val == 1:
+            shape = shapely.geometry.shape(geom)
+            areas.append(shape.area)
             geoms.append(geom)
 
     if len(geoms) > 1:
         print(
-            f"WARNING: Found {len(geoms)} valid data regions, this might be unexpected."
+            f"WARNING: Found {len(geoms)} valid data regions, choosing the largest by area."
         )
+        for i in range(len(geoms)):
+            if areas[i] == max(areas):
+                geom = geoms[i]
+                break
+        shape = shapely.geometry.shape(geom)
+        exterior_ring = shape.exterior
+        exterior_coords = list(exterior_ring.coords)
+        exterior_shape = shapely.geometry.Polygon(exterior_coords)
+        geom = shapely.geometry.mapping(exterior_shape)
+    else:
+        print("Found one valid data region.")
+        geom = geoms[0]
 
     # Write output
     schema = {"geometry": "Polygon", "properties": {"id": "int"}}
@@ -81,16 +96,15 @@ def main():
     with fiona.open(
         args.output_fn, "w", driver="GeoJSON", crs="EPSG:4326", schema=schema
     ) as f:
-        for i, geom in enumerate(geoms):
-            shape = shapely.geometry.shape(geom)
-            if crs == "EPSG:4326":  # Simplify by approximately 10 meters
-                geom = shapely.geometry.mapping(shape.simplify(10 / 111_139))
-            else:  # We assume that anything that is not EPSG:4326 is projected
-                geom = shapely.geometry.mapping(shape.simplify(10))
-                geom = fiona.transform.transform_geom(crs, "EPSG:4326", geom)
+        shape = shapely.geometry.shape(geom)
+        if crs == "EPSG:4326":  # Simplify by approximately 10 meters
+            geom = shapely.geometry.mapping(shape.simplify(10 / 111_139))
+        else:  # We assume that anything that is not EPSG:4326 is projected
+            geom = shapely.geometry.mapping(shape.simplify(10))
+            geom = fiona.transform.transform_geom(crs, "EPSG:4326", geom)
 
-            row = {"type": "Feature", "geometry": geom, "properties": {"id": i}}
-            f.write(row)
+        row = {"type": "Feature", "geometry": geom, "properties": {"id": i}}
+        f.write(row)
 
 
 if __name__ == "__main__":
