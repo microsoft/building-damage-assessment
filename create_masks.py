@@ -115,10 +115,12 @@ def cluster_labels(
         return []
     
     # Get bounds of all features in dst_crs
-    bounds_geom = shapely.geometry.mapping(
-        shapely.geometry.box(*fiona.open(labels_fn).bounds)
-    )
-    bounds_geom = fiona.transform.transform_geom("epsg:4326", dst_crs, bounds_geom)
+    with fiona.open(labels_fn) as f:
+        bounds_geom = shapely.geometry.mapping(
+            shapely.geometry.box(*f.bounds)
+        )
+        label_crs = f.crs.to_string()
+    bounds_geom = fiona.transform.transform_geom(label_crs, dst_crs, bounds_geom)
     shape = shapely.geometry.shape(bounds_geom)
     minx, miny, maxx, maxy = shape.bounds
     
@@ -405,8 +407,8 @@ def main() -> None:
                 for feature in cluster["features"]:
                     dst.write(feature)
             
-            # Transform cluster geometry to image CRS for cropping
-            crop_geom = fiona.transform.transform_geom("epsg:4326", dst_crs, cluster["geom"])
+            # Cluster geometry is already in image CRS (dst_crs)
+            crop_geom = cluster["geom"]
         else:
             suffix = ""
             temp_label_fn = input_label_fn
