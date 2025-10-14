@@ -112,6 +112,25 @@ python run_workflow.py --config configs/example_config.yml
 
 More specifically, the `create_masks.py` script will create a new directory in based on the **experiment_dir** key in the config file, with the training images in `images/`, the rasterized version of the labels in `masks/`, and a copy of the original labels in `labels/`. Next, the `fine_tune.py` script will use the `images/` and `masks/` directory to fine-tune a semantic segmentation model, saving model checkpoints in `checkpoints/` and TensorBoard logs to the directory specified by the **training.log_dir** key in the config file. Finally, `inference.py` will create predictions over the entire input image (using the latest model checkpoint) and save the results to the `outputs/` directory.
 
+### Label Clustering
+
+When labels are sparse across a large imagery scene, most of the mask will be nodata, meaning that some training batches will have all 0s. To improve training efficiency, `create_masks.py` supports clustering labels into spatial grid cells and creating separate image/mask pairs for each cluster. This can be enabled by adding the following parameters to the `labels` section of your config file:
+
+```yaml
+labels:
+  # ... existing parameters ...
+  cluster_size_in_meters: 1000  # Size of grid cells in meters for clustering labels
+  min_pixels_per_cluster: 1000  # Minimum number of labeled pixels required per cluster
+```
+
+When clustering is enabled:
+- Labels are divided into grid cells of the specified size
+- A separate image/mask pair is created for each grid cell that contains labels
+- Clusters with fewer than `min_pixels_per_cluster` labeled pixels are discarded
+- Output files are named with a `_cluster_{i}` suffix (e.g., `image_cluster_0_cropped.tif`)
+
+An example config with clustering enabled can be found in `configs/example_config_clustered.yml`.
+
 You can use tensorboard to monitor training:
 ```
 tensorboard --logdir logs/maui_demo_0/ --port 8889
