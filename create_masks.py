@@ -55,6 +55,18 @@ def add_create_masks_parser(parser: argparse.ArgumentParser) -> argparse.Argumen
         help="Class name to set buffered pixels to",
     )
     parser.add_argument(
+        "--labels.cluster_size_in_meters",
+        type=float,
+        required=False,
+        help="Size of grid cells in meters for clustering labels. If not provided, all labels are processed together.",
+    )
+    parser.add_argument(
+        "--labels.min_pixels_per_cluster",
+        type=int,
+        default=1000,
+        help="Minimum number of labeled pixels required per cluster",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Whether to overwrite the output dataset if it already exists",
@@ -81,60 +93,105 @@ def get_class_names_from_labels(labels_fn: str, key: str = "class") -> set:
     return class_names
 
 
-def main() -> None:
-    """Main function for the create_masks.py script."""
-    args = get_args(description=__doc__, add_extra_parser=add_create_masks_parser)
+def cluster_labels(
+    labels_fn: str, cluster_size: float, dst_crs: str
+) -> list[dict]:
+    """Cluster labels into spatial grid cells.
 
-    input_label_fn = args["labels"]["fn"]
-    input_image_fn = args["imagery"]["raw_fn"]
-    output_dir = args["experiment_dir"]
-    class_names = args["labels"]["classes"]
-    buffer_in_meters = args["labels"]["buffer_in_meters"]
-    class_to_buffer = args["labels"]["class_to_buffer"]
-    class_to_buffer_by = args["labels"]["class_to_buffer_by"]
-    overwrite = args["overwrite"]
+    Args:
+        labels_fn (str): Path to GeoJSON file containing polygon labels.
+        cluster_size (float): Size of grid cells in the units of dst_crs (typically meters).
+        dst_crs (str): Target CRS to use for clustering.
 
-    # we include +1 as we use 0 as a "not labeled" class by convention
-    class_name_to_idx_map = {
-        class_name: idx + 1 for idx, class_name in enumerate(class_names)
-    }
+    Returns:
+        list[dict]: List of cluster info dicts, each containing 'geom', 'features', and 'cluster_id'.
+    """
+    # Transform labels to dst_crs and get their bounds
+    with fiona.open(labels_fn) as f:
+        src_crs = f.crs.to_string()
+        features = list(f)
+        
+    if not features:
+        return []
+    
+    # Get bounds of all features in dst_crs
+    bounds_geom = shapely.geometry.mapping(
+        shapely.geometry.box(*fiona.open(labels_fn).bounds)
+    )
+    bounds_geom = fiona.transform.transform_geom("epsg:4326", dst_crs, bounds_geom)
+    shape = shapely.geometry.shape(bounds_geom)
+    minx, miny, maxx, maxy = shape.bounds
+    
+    # Create grid cells
+    clusters = []
+    cluster_id = 0
+    
+    for x in np.arange(minx, maxx, cluster_size):
+        for y in np.arange(miny, maxy, cluster_size):
+            grid_cell = shapely.geometry.box(x, y, x + cluster_size, y + cluster_size)
+            
+            # Find features that intersect this grid cell
+            cluster_features = []
+            for feature in features:
+                # Transform feature geometry to dst_crs
+                feature_geom = fiona.transform.transform_geom(
+                    src_crs, dst_crs, feature["geometry"]
+                )
+                feature_shape = shapely.geometry.shape(feature_geom)
+                
+                if grid_cell.intersects(feature_shape):
+                    cluster_features.append(feature)
+            
+            if cluster_features:
+                # Get the intersection of grid cell and features bounds
+                cluster_geom = grid_cell.intersection(
+                    shapely.geometry.box(*shape.bounds)
+                )
+                clusters.append({
+                    "geom": shapely.geometry.mapping(cluster_geom),
+                    "features": cluster_features,
+                    "cluster_id": cluster_id,
+                })
+                cluster_id += 1
+    
+    return clusters
 
-    if set(class_names) != get_class_names_from_labels(input_label_fn):
-        print(
-            "WARNING: The class names in the config file do not match the class names"
-            + " in the input label file."
-        )
 
-    assert os.path.exists(input_label_fn)
-    assert input_label_fn.endswith(".geojson")
-    assert os.path.exists(input_image_fn)
-    assert input_image_fn.endswith(".tif")
+def create_mask_for_labels(
+    input_label_fn: str,
+    input_image_fn: str,
+    output_dir: str,
+    class_names: list[str],
+    class_name_to_idx_map: dict[str, int],
+    buffer_in_meters: int,
+    class_to_buffer: str,
+    class_to_buffer_by: str,
+    crop_geom: dict = None,
+    suffix: str = "",
+) -> tuple[str, str]:
+    """Create a mask and cropped image for a set of labels.
 
+    Args:
+        input_label_fn: Path to GeoJSON file with labels.
+        input_image_fn: Path to input imagery.
+        output_dir: Directory to write output to.
+        class_names: List of class names.
+        class_name_to_idx_map: Mapping from class names to indices.
+        buffer_in_meters: Buffer distance in meters.
+        class_to_buffer: Class name to buffer.
+        class_to_buffer_by: Class name to use for buffered pixels.
+        crop_geom: Optional geometry to crop to (in image CRS). If None, crops to label bounds.
+        suffix: Optional suffix to add to output filenames.
+
+    Returns:
+        tuple: (output_cropped_image_fn, output_buffered_mask_fn)
+    """
     name = os.path.basename(input_image_fn).replace(".tif", "")
-
-    output_mask_fn = os.path.join(output_dir, f"{name}_mask.tif")
-    output_warped_label_fn = os.path.join(output_dir, f"{name}_labels_warped.geojson")
-    output_cropped_image_fn = os.path.join(output_dir, "images", f"{name}_cropped.tif")
-    output_buffered_mask_fn = os.path.join(output_dir, "masks", f"{name}_buffered.tif")
-    all_output_fns = [
-        output_mask_fn,
-        output_warped_label_fn,
-        output_cropped_image_fn,
-        output_buffered_mask_fn,
-    ]
-
-    # Check if any of the output files already exist
-    if any([os.path.exists(fn) for fn in all_output_fns]) and not overwrite:
-        print("Output files already exist, use --overwrite to overwrite them. Exiting.")
-        return
-
-    # Make sure the output directories exist
-    os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "masks"), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, "labels"), exist_ok=True)
-
-    # Make a backup of the input label file
-    shutil.copy(input_label_fn, os.path.join(output_dir, "labels"))
+    
+    output_mask_fn = os.path.join(output_dir, f"{name}{suffix}_mask.tif")
+    output_warped_label_fn = os.path.join(output_dir, f"{name}{suffix}_labels_warped.geojson")
+    output_cropped_image_fn = os.path.join(output_dir, "images", f"{name}{suffix}_cropped.tif")
+    output_buffered_mask_fn = os.path.join(output_dir, "masks", f"{name}{suffix}_buffered.tif")
 
     ##########
     # Load information about the input image
@@ -156,12 +213,15 @@ def main() -> None:
     assert subprocess.call(command) == 0
 
     ##########
-    # Crop the input image to the extent of the labels
-    with fiona.open(input_label_fn) as f:
-        geom = shapely.geometry.mapping(shapely.geometry.box(*f.bounds))
-    geom = dict(fiona.transform.transform_geom("epsg:4326", dst_crs, geom))
-    del geom["geometries"]
-    geom = shapely.geometry.mapping(shapely.geometry.shape(geom).envelope)
+    # Crop the input image to the extent specified or the labels
+    if crop_geom is None:
+        with fiona.open(input_label_fn) as f:
+            geom = shapely.geometry.mapping(shapely.geometry.box(*f.bounds))
+        geom = dict(fiona.transform.transform_geom("epsg:4326", dst_crs, geom))
+        del geom["geometries"]
+        geom = shapely.geometry.mapping(shapely.geometry.shape(geom).envelope)
+    else:
+        geom = crop_geom
 
     with rasterio.open(input_image_fn) as f:
         data, transform = rasterio.mask.mask(f, [geom], crop=True)
@@ -269,6 +329,136 @@ def main() -> None:
 
     os.remove(output_warped_label_fn)
     os.remove(output_mask_fn)
+    
+    return output_cropped_image_fn, output_buffered_mask_fn
+
+
+def main() -> None:
+    """Main function for the create_masks.py script."""
+    args = get_args(description=__doc__, add_extra_parser=add_create_masks_parser)
+
+    input_label_fn = args["labels"]["fn"]
+    input_image_fn = args["imagery"]["raw_fn"]
+    output_dir = args["experiment_dir"]
+    class_names = args["labels"]["classes"]
+    buffer_in_meters = args["labels"]["buffer_in_meters"]
+    class_to_buffer = args["labels"]["class_to_buffer"]
+    class_to_buffer_by = args["labels"]["class_to_buffer_by"]
+    cluster_size = args["labels"].get("cluster_size_in_meters")
+    min_pixels_per_cluster = args["labels"].get("min_pixels_per_cluster", 1000)
+    overwrite = args["overwrite"]
+
+    # we include +1 as we use 0 as a "not labeled" class by convention
+    class_name_to_idx_map = {
+        class_name: idx + 1 for idx, class_name in enumerate(class_names)
+    }
+
+    if set(class_names) != get_class_names_from_labels(input_label_fn):
+        print(
+            "WARNING: The class names in the config file do not match the class names"
+            + " in the input label file."
+        )
+
+    assert os.path.exists(input_label_fn)
+    assert input_label_fn.endswith(".geojson")
+    assert os.path.exists(input_image_fn)
+    assert input_image_fn.endswith(".tif")
+
+    name = os.path.basename(input_image_fn).replace(".tif", "")
+
+    # Make sure the output directories exist
+    os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "masks"), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "labels"), exist_ok=True)
+
+    # Make a backup of the input label file
+    shutil.copy(input_label_fn, os.path.join(output_dir, "labels"))
+
+    # Get the CRS of the input image for clustering
+    with rasterio.open(input_image_fn) as f:
+        dst_crs = f.crs.to_string()
+
+    # Determine if we should cluster or process all labels together
+    if cluster_size is not None:
+        print(f"Clustering labels with grid size {cluster_size} meters...")
+        clusters = cluster_labels(input_label_fn, cluster_size, dst_crs)
+        print(f"Found {len(clusters)} clusters")
+    else:
+        # No clustering - process all labels as a single cluster
+        clusters = [{"geom": None, "features": None, "cluster_id": 0}]
+
+    # Process each cluster
+    created_files = []
+    for cluster in clusters:
+        cluster_id = cluster["cluster_id"]
+        
+        if cluster_size is not None:
+            suffix = f"_cluster_{cluster_id}"
+            
+            # Create a temporary label file for this cluster
+            temp_label_fn = os.path.join(output_dir, f"temp_cluster_{cluster_id}.geojson")
+            with fiona.open(input_label_fn) as src:
+                schema = src.schema
+                crs = src.crs
+                
+            with fiona.open(temp_label_fn, "w", driver="GeoJSON", crs=crs, schema=schema) as dst:
+                for feature in cluster["features"]:
+                    dst.write(feature)
+            
+            # Transform cluster geometry to image CRS for cropping
+            crop_geom = fiona.transform.transform_geom("epsg:4326", dst_crs, cluster["geom"])
+        else:
+            suffix = ""
+            temp_label_fn = input_label_fn
+            crop_geom = None
+
+        # Check if output files already exist for this cluster
+        name = os.path.basename(input_image_fn).replace(".tif", "")
+        output_cropped_image_fn = os.path.join(output_dir, "images", f"{name}{suffix}_cropped.tif")
+        output_buffered_mask_fn = os.path.join(output_dir, "masks", f"{name}{suffix}_buffered.tif")
+        
+        if os.path.exists(output_cropped_image_fn) and os.path.exists(output_buffered_mask_fn) and not overwrite:
+            print(f"Output files for cluster {cluster_id} already exist, skipping...")
+            if cluster_size is not None:
+                os.remove(temp_label_fn)
+            continue
+
+        try:
+            # Create mask and cropped image for this cluster
+            img_fn, mask_fn = create_mask_for_labels(
+                temp_label_fn,
+                input_image_fn,
+                output_dir,
+                class_names,
+                class_name_to_idx_map,
+                buffer_in_meters,
+                class_to_buffer,
+                class_to_buffer_by,
+                crop_geom,
+                suffix,
+            )
+            
+            # Check if the mask has enough labeled pixels
+            with rasterio.open(mask_fn) as f:
+                mask_data = f.read(1)
+                num_labeled_pixels = np.sum(mask_data > 0)
+            
+            if num_labeled_pixels < min_pixels_per_cluster:
+                print(f"Cluster {cluster_id} has only {num_labeled_pixels} labeled pixels (min: {min_pixels_per_cluster}), removing...")
+                os.remove(img_fn)
+                os.remove(mask_fn)
+            else:
+                print(f"Created cluster {cluster_id} with {num_labeled_pixels} labeled pixels")
+                created_files.append((img_fn, mask_fn))
+        finally:
+            # Clean up temporary label file
+            if cluster_size is not None and os.path.exists(temp_label_fn):
+                os.remove(temp_label_fn)
+    
+    if not created_files:
+        print("WARNING: No valid clusters were created. Consider adjusting cluster_size or min_pixels_per_cluster.")
+    else:
+        print(f"Successfully created {len(created_files)} image/mask pairs")
 
 
 if __name__ == "__main__":
