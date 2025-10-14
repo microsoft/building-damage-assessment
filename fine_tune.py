@@ -89,7 +89,7 @@ def main() -> None:
     num_classes = len(args["labels"]["classes"]) + 1
     task = CustomSemanticSegmentationTask(
         model="unet",
-        backbone="resnext50_32x4d",
+        backbone="efficientnet-b3",
         weights=True,  # use ImageNet pre-trained weights
         in_channels=args["imagery"]["num_channels"],
         num_classes=num_classes,
