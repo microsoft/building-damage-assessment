@@ -128,7 +128,7 @@ type_theme_map = {
 }
 
 
-def _dataset_path(overture_type: str, release: str = "2025-09-24.0") -> str:
+def _dataset_path(overture_type: str, release: str = "2025-11-19.0") -> str:
     """
     Returns the Azure blob storage container and path of the Overture dataset to use.
     This assumes overture_type has been validated, e.g. by the CLI
