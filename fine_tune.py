@@ -104,6 +104,7 @@ def main() -> None:
         monitor="val_loss", dirpath=checkpoint_dir, save_top_k=2, save_last=True
     )
 
+    os.makedirs(args["training"]["log_dir"], exist_ok=True)
     tb_logger = TensorBoardLogger(
         save_dir=args["training"]["log_dir"], name=args["experiment_name"]
     )

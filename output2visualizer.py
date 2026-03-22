@@ -86,7 +86,10 @@ def main(args):
     with fiona.open(args.merged_footprints_fn) as f:
         for row in f:
             geom = row["geometry"]
-            val = classify(row["properties"]["damage_pct_0m"]) + 1
+            dmg_pct = row["properties"]["damage_pct_0m"]
+            if dmg_pct is None:
+                continue
+            val = classify(dmg_pct) + 1
             shape_vals.append((geom, val))
 
     mask = rasterio.features.rasterize(

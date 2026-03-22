@@ -13,6 +13,7 @@ import rasterio
 import rasterio.mask
 import shapely.geometry
 from tqdm import tqdm
+import rasterio.errors
 
 
 def set_up_parser() -> argparse.ArgumentParser:
@@ -65,6 +66,43 @@ def main(args):
             for buffer in [0, 10, 20]:
                 building_shape = shapely.geometry.shape(building_geom).buffer(buffer)
 
+                try:
+                    building_mask, transform = rasterio.mask.mask(
+                        f, [building_shape], crop=True, nodata=0, filled=True
+                    )
+                    vals, counts = np.unique(building_mask, return_counts=True)
+                    val_counts = dict(zip(vals, counts))
+
+                    N = 0
+                    for k, v in val_counts.items():
+                        if k != 0:
+                            N += v
+
+                    if 3 in val_counts:
+                        fraction_damaged = min(val_counts[3] / N, 1)
+                    else:
+                        fraction_damaged = 0
+
+                    if 2 in val_counts:
+                        fraction_built = min(val_counts[2] / N, 1)
+                    else:
+                        fraction_built = 0
+                    t_built_vals.append(fraction_built)
+                    t_dmg_vals.append(fraction_damaged)
+                except ValueError as e:
+                    print(e)
+                    t_built_vals.append(0)
+                    t_dmg_vals.append(0)
+
+            built_vals_per_geom.append(t_built_vals)
+            damage_vals_per_geom.append(t_dmg_vals)
+
+
+        # Compute the fraction of unknown (cloud covered) pixels per geometry
+        for building_geom in tqdm(projected_building_geoms):
+            building_shape = shapely.geometry.shape(building_geom)
+
+            try:
                 building_mask, transform = rasterio.mask.mask(
                     f, [building_shape], crop=True, nodata=0, filled=True
                 )
@@ -76,41 +114,14 @@ def main(args):
                     if k != 0:
                         N += v
 
-                if 3 in val_counts:
-                    fraction_damaged = min(val_counts[3] / N, 1)
+                if 4 in val_counts:
+                    fraction_unknown = val_counts[4] / N
                 else:
-                    fraction_damaged = 0
-
-                if 2 in val_counts:
-                    fraction_built = min(val_counts[2] / N, 1)
-                else:
-                    fraction_built = 0
-                t_built_vals.append(fraction_built)
-                t_dmg_vals.append(fraction_damaged)
-            built_vals_per_geom.append(t_built_vals)
-            damage_vals_per_geom.append(t_dmg_vals)
-
-
-        # Compute the fraction of unknown (cloud covered) pixels per geometry
-        for building_geom in tqdm(projected_building_geoms):
-            building_shape = shapely.geometry.shape(building_geom)
-
-            building_mask, transform = rasterio.mask.mask(
-                f, [building_shape], crop=True, nodata=0, filled=True
-            )
-            vals, counts = np.unique(building_mask, return_counts=True)
-            val_counts = dict(zip(vals, counts))
-
-            N = 0
-            for k, v in val_counts.items():
-                if k != 0:
-                    N += v
-
-            if 4 in val_counts:
-                fraction_unknown = val_counts[4] / N
-            else:
-                fraction_unknown = 0
-            unknown_val_per_geom.append(fraction_unknown)
+                    fraction_unknown = 0
+                unknown_val_per_geom.append(fraction_unknown)
+            except ValueError as e:
+                print(e)
+                unknown_val_per_geom.append(1)
 
     ############################################
     # Write damage values to file

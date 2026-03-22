@@ -2,8 +2,8 @@ name: bda
 channels:
   - conda-forge
 dependencies:
-  - gdal<3.9
-  - python<3.11
+  - gdal
+  - python<3.14
   - pip
   - pip:
     - adlfs
@@ -20,5 +20,6 @@ dependencies:
     - pyarrow
     - rasterio
     - scikit-learn
+    - setuptools<81
     - tensorboard
     - torchgeo[all]
