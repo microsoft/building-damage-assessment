@@ -19,7 +19,9 @@ dependencies:
     - planetary_computer
     - pyarrow
     - rasterio
+    - rtree
     - scikit-learn
     - setuptools<81
     - tensorboard
     - torchgeo[all]
+    - torch<2.11
