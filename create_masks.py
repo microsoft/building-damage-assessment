@@ -170,6 +170,7 @@ def create_mask_for_labels(
     class_to_buffer_by: str,
     crop_geom: dict = None,
     suffix: str = "",
+    num_channels: int = None,
 ) -> tuple[str, str]:
     """Create a mask and cropped image for a set of labels.
 
@@ -184,6 +185,7 @@ def create_mask_for_labels(
         class_to_buffer_by: Class name to use for buffered pixels.
         crop_geom: Optional geometry to crop to (in image CRS). If None, crops to label bounds.
         suffix: Optional suffix to add to output filenames.
+        num_channels: Optional number of channels to keep from the imagery. If None, all channels are kept.
 
     Returns:
         tuple: (output_cropped_image_fn, output_buffered_mask_fn)
@@ -228,10 +230,20 @@ def create_mask_for_labels(
     with rasterio.open(input_image_fn) as f:
         data, transform = rasterio.mask.mask(f, [geom], crop=True)
 
+    if num_channels is not None and num_channels != data.shape[0]:
+        print(
+            f"\n{'!'*60}\n"
+            f"WARNING: Clipping imagery from {data.shape[0]} channels to {num_channels} channels.\n"
+            f"Channels {num_channels+1}-{data.shape[0]} will be dropped!\n"
+            f"{'!'*60}\n"
+        )
+        data = data[:num_channels]
+
     _, height, width = data.shape
 
     profile["height"] = height
     profile["width"] = width
+    profile["count"] = data.shape[0]
     profile["transform"] = transform
     profile["predictor"] = 2
     with rasterio.open(output_cropped_image_fn, "w", **profile) as f:
@@ -348,6 +360,7 @@ def main() -> None:
     class_to_buffer_by = args["labels"]["class_to_buffer_by"]
     cluster_size = args["labels"].get("cluster_size_in_meters")
     min_pixels_per_cluster = args["labels"].get("min_pixels_per_cluster", 1000)
+    num_channels = args["imagery"].get("num_channels")
     overwrite = args["overwrite"]
 
     # we include +1 as we use 0 as a "not labeled" class by convention
@@ -438,6 +451,7 @@ def main() -> None:
                 class_to_buffer_by,
                 crop_geom,
                 suffix,
+                num_channels,
             )
             
             # Check if the mask has enough labeled pixels

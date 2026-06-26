@@ -89,7 +89,7 @@ def main() -> None:
     num_classes = len(args["labels"]["classes"]) + 1
     task = CustomSemanticSegmentationTask(
         model="unet",
-        backbone="efficientnet-b3",
+        backbone="resnext50_32x4d",
         weights=True,  # use ImageNet pre-trained weights
         in_channels=args["imagery"]["num_channels"],
         num_classes=num_classes,
@@ -104,6 +104,7 @@ def main() -> None:
         monitor="val_loss", dirpath=checkpoint_dir, save_top_k=2, save_last=True
     )
 
+    os.makedirs(args["training"]["log_dir"], exist_ok=True)
     tb_logger = TensorBoardLogger(
         save_dir=args["training"]["log_dir"], name=args["experiment_name"]
     )

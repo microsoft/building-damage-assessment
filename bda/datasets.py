@@ -56,9 +56,11 @@ class TileDataset(Dataset):
         mask_fns: List[str],
         transforms=None,
         sanity_check=True,
+        num_channels: int = None,
     ):
         self.image_fns = image_fns
         self.mask_fns = mask_fns
+        self.num_channels = num_channels
         if self.mask_fns is not None:
             assert len(image_fns) == len(mask_fns)
 
@@ -97,6 +99,8 @@ class TileDataset(Dataset):
                 image = f.read(window=window)
             stack.append(image)
         stack = np.concatenate(stack, axis=0)
+        if self.num_channels is not None:
+            stack = stack[:self.num_channels]
         sample["image"] = torch.from_numpy(stack).float()
 
         # Load mask

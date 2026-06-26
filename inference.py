@@ -45,6 +45,11 @@ def add_inference_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         help="Number of pixels to throw away from each side of the patch after inference",
     )  # TODO: better description
     parser.add_argument(
+        "--imagery.raw_fn",
+        type=str,
+        help="Path to the input raster (.tif or .vrt).",
+    )
+    parser.add_argument(
         "--overwrite", action="store_true", help="Overwrites the outputs if they exist"
     )
     # NOTE: we don't include some flags like `--imagery.normalization_means` or
@@ -63,6 +68,7 @@ def main() -> None:
     )
     print(input_model_checkpoint)
     input_image_fn = args["imagery"]["raw_fn"]
+    print("Running on image:", input_image_fn)
     patch_size = args["inference"]["patch_size"]
     padding = args["inference"]["padding"]
     output_dir = os.path.join(
@@ -106,7 +112,11 @@ def main() -> None:
         stds=args["imagery"]["normalization_stds"],
     )
 
-    dataset = TileDataset([[input_image_fn]], mask_fns=None, transforms=preprocess)
+    num_channels = args["imagery"].get("num_channels")
+    dataset = TileDataset(
+        [[input_image_fn]], mask_fns=None, transforms=preprocess,
+        num_channels=num_channels,
+    )
     sampler = GridGeoSampler(
         [[input_image_fn]], [0], patch_size=patch_size, stride=stride
     )
@@ -177,6 +187,7 @@ def main() -> None:
                 ),  # this alpha doesn't work because of a limitation in TIFFs
                 2: (0, 255, 0, 255),
                 3: (255, 0, 0, 255),
+                4: (128, 128, 128, 255),
             },
         )
         f.colorinterp = [ColorInterp.palette]

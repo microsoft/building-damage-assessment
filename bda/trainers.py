@@ -9,6 +9,8 @@ import torch.nn.functional as F
 from lightning.pytorch.callbacks import Callback
 from torchgeo.trainers import SemanticSegmentationTask
 import kornia.augmentation as K
+import torch.nn as nn
+import segmentation_models_pytorch as smp
 
 
 class CustomSemanticSegmentationTask(SemanticSegmentationTask):
@@ -39,6 +41,30 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
         """
         return []
 
+    def configure_losses(self) -> None:
+        """Initialize the loss criterion.
+
+        Raises:
+            ValueError: If *loss* is invalid.
+        """
+        loss: str = self.hparams['loss']
+        ignore_index = self.hparams['ignore_index']
+        if loss == 'ce':
+            ignore_value = -1000 if ignore_index is None else ignore_index
+            self.criterion = nn.CrossEntropyLoss(
+                ignore_index=ignore_value, weight=self.hparams['class_weights']
+            )
+        elif loss == 'dice':
+            self.criterion = smp.losses.DiceLoss(
+                mode='multiclass',
+                ignore_index=ignore_index,
+            )
+        else:
+            raise ValueError(
+                f"Loss type '{loss}' is not valid. "
+                "Currently, supports 'ce', 'jaccard' or 'focal' loss."
+            )
+
     def training_step(
         self, batch: Any, batch_idx: int, dataloader_idx: int = 0
     ) -> Tensor:
@@ -61,10 +87,10 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
 
         if self.use_constraint_loss:
             ce_loss = F.cross_entropy(y_hat, y, ignore_index=0, reduction="none")
-            standard_mask = (y > 0) & (y < 4)
+            standard_mask = (y > 0) & (y != 5)
             loss = ce_loss[standard_mask].mean()
 
-            constraint_mask = y == 4
+            constraint_mask = y == 5
             if constraint_mask.any():
                 probs = F.softmax(y_hat, dim=1)
                 penalty = probs[:, 3, :, :][constraint_mask]
