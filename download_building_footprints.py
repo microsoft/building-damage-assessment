@@ -10,6 +10,7 @@ from bda.footprints import geodataframe
 
 import fiona
 import fiona.transform
+import geopandas as gpd
 import rasterio
 import shapely
 
@@ -113,15 +114,23 @@ def main(args):
     # Get AOI from input file
     shape = get_coordinates(args.input_fn)
 
-    # Get footprints
+    # Get footprints (Overture only supports bbox filters server-side)
     footprints = geodataframe("building", shape.bounds)
 
-    # Save footprints
     footprints = footprints[["id", "geometry", "subtype", "class"]]
+    footprints.set_crs(epsg=4326, inplace=True)
+
+    # Clip the footprints to the actual AOI shape (not just its bounding box).
+    # This drops buildings outside the AOI and trims any partially outside it.
+    aoi = gpd.GeoDataFrame(geometry=[shape], crs="EPSG:4326")
+    footprints = gpd.clip(footprints, aoi)
+
+    # Clipping can produce non-polygon geometries along the boundary; keep only
+    # (Multi)Polygons.
     footprints = footprints[
         footprints.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
     ]
-    footprints.set_crs(epsg=4326, inplace=True)
+
     footprints.to_file(output_fn, driver="GPKG")
 
     print(f"{footprints.shape[0]} building footprints found and saved to {output_fn}")
