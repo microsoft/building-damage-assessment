@@ -10,14 +10,17 @@ dependencies:
     - azure-storage-blob
     - dask_geopandas
     - deltalake
+    - fiona
     - fsspec
     - geopandas
     - jupyter
     - mercantile
+    - opencv-python
     - osmnx
     - pigeon-jupyter
     - planetary_computer
     - pyarrow
+    - torch<2.11
     - rasterio
     - rtree
     - scikit-learn
