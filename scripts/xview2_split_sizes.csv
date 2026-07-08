@@ -1,0 +1,12 @@
+disaster,train_patches,train_footprints,val_patches,val_footprints,test_patches,test_footprints,total_patches,total_footprints
+guatemala-volcano,17,759,1,97,5,32,23,888
+hurricane-florence,291,5761,28,685,108,2268,427,8714
+hurricane-harvey,286,20440,33,2574,108,7715,427,30729
+hurricane-matthew,215,11338,23,2601,73,4189,311,18128
+hurricane-michael,304,19967,39,2719,98,5657,441,28343
+mexico-earthquake,113,29788,8,2483,38,11411,159,43682
+midwest-flooding,251,8334,28,422,80,2532,359,11288
+palu-tsunami,102,26643,11,4751,42,12560,155,43954
+santa-rosa-wildfire,204,11977,22,973,74,4226,300,17176
+socal-fire,737,9677,86,798,307,4272,1130,14747
+TOTAL,2520,144684,279,18103,933,54862,3732,217649
