@@ -87,10 +87,13 @@ def main() -> None:
 
     # we include +1 to account for our 0 "not labeled" class
     num_classes = len(args["labels"]["classes"]) + 1
+    # Model/backbone default to the smp U-Net used previously, but can be set to
+    # `upernet` + a `dinov3_*` backbone (see bda/dinov3_upernet.py) via the config.
+    training_cfg = args["training"]
     task = CustomSemanticSegmentationTask(
-        model="unet",
-        backbone="resnext50_32x4d",
-        weights=True,  # use ImageNet pre-trained weights
+        model=training_cfg.get("model", "unet"),
+        backbone=training_cfg.get("backbone", "resnext50_32x4d"),
+        weights=training_cfg.get("weights", True),  # ImageNet / pretrained weights
         in_channels=args["imagery"]["num_channels"],
         num_classes=num_classes,
         loss="ce",
