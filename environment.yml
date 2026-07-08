@@ -26,5 +26,9 @@ dependencies:
     - scikit-learn
     - setuptools<81
     - tensorboard
+    # Optional: only needed for the DINOv3 + UPerNet ('upernet') segmentation
+    # model (bda/dinov3_upernet.py). The DINOv3 backbones are gated on the HF
+    # hub -- request access and run `huggingface-cli login` once.
+    - transformers>=4.56
     - torchgeo[all]
     - torch<2.11

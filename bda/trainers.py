@@ -41,6 +41,30 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
         """
         return []
 
+    def configure_models(self) -> None:
+        """Initialize the model.
+
+        Adds a ``"upernet"`` option (DINOv3 ViT backbone + UPerNet decode head)
+        on top of the ``segmentation_models_pytorch`` models that torchgeo's
+        :class:`~torchgeo.trainers.SemanticSegmentationTask` supports. Because the
+        architecture is rebuilt from the saved hyperparameters, ``upernet``
+        checkpoints load transparently in ``inference.py``.
+        """
+        if self.hparams["model"] == "upernet":
+            from .dinov3_upernet import DINOv3UPerNet
+
+            self.model = DINOv3UPerNet(
+                backbone=self.hparams["backbone"],
+                in_channels=self.hparams["in_channels"],
+                num_classes=self.hparams["num_classes"],
+                pretrained=self.weights is True,
+            )
+            if self.hparams["freeze_backbone"]:
+                for param in self.model.backbone.parameters():
+                    param.requires_grad = False
+        else:
+            super().configure_models()
+
     def configure_losses(self) -> None:
         """Initialize the loss criterion.
 

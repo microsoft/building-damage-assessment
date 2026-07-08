@@ -35,6 +35,15 @@ A tutorial that walks through how to perform a damage assessment step-by-step wi
 A tutorial that walks through how to perform a damage assessment using a damage proxy map can be found [here](DPM_WORKFLOW.md).
 
 
+## DINOv3 + UPerNet segmentation model
+
+In addition to the `segmentation_models_pytorch` U-Net / DeepLabV3+ models, the
+trainer supports a DINOv3 ViT backbone with a UPerNet decode head (`model:
+upernet`). Trained checkpoints run through `inference.py` unchanged. See
+[DINOV3_UPERNET.md](DINOV3_UPERNET.md) for details and an xView2 (xBD) damage
+segmentation example.
+
+
 ## Results
 
 The Microsoft AI for Good Lab has used this workflow to help our partners respond to a number of disasters. Including:
