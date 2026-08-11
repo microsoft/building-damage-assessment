@@ -14,6 +14,16 @@ import subprocess
 import sys
 
 
+def get_crs(file_path):
+    """Get the Coordinate Reference System (CRS) of a vector file using fiona and pyproj."""
+    import fiona
+    from pyproj import CRS
+    with fiona.open(file_path) as src:
+        if src.crs:
+            return CRS.from_user_input(src.crs)
+    return None
+
+
 def main():
     """Main function for the merge_vector_files.py script."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -39,11 +49,13 @@ def main():
         sys.exit(1)
     elif os.path.exists(output_fn) and args.overwrite:
         print(f"WARNING: Overwriting output file: {output_fn}")
-        os.remove(args.output_fn)
+        os.remove(output_fn)
 
     output_dir = os.path.dirname(output_fn)
-    if not os.path.exists(output_dir):
+    if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
+
+    dst_crs = get_crs(input_fns[0])
 
     try:
         initial_input = input_fns.pop(0)
@@ -54,20 +66,20 @@ def main():
 
         # Merge the remaining input files into the output file
         for input_file in input_fns:
-            subprocess.run(
-                [
-                    "ogr2ogr",
-                    "-f",
-                    "GPKG",
-                    "-update",
-                    "-append",
-                    "-nln",
-                    "out",
-                    output_fn,
-                    input_file,
-                ],
-                check=True,
-            )
+            src_crs = get_crs(input_file)
+
+            cmd = [
+                "ogr2ogr",
+                "-f",
+                "GPKG",
+                "-update",
+                "-append",
+            ]
+            if dst_crs is not None and src_crs is not None and dst_crs != src_crs:
+                cmd.extend(["-t_srs", dst_crs.to_string()])
+
+            cmd.extend(["-nln", "out", output_fn, input_file])
+            subprocess.run(cmd, check=True)
 
         print(f"Successfully merged {len(input_fns) + 1} files into {output_fn}")
     except subprocess.CalledProcessError as e:
