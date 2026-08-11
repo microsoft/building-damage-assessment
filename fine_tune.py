@@ -8,6 +8,7 @@ import glob
 import os
 
 import lightning.pytorch as pl
+import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
@@ -40,6 +41,13 @@ def add_fine_tune_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     )
     parser.add_argument("--training.batch_size", type=int, help="Batch size")
     parser.add_argument(
+        "--training.preload",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Whether to read all tiles into memory instead of reading each patch"
+        + " from disk (much faster, but requires the tiles to fit in RAM)",
+    )
+    parser.add_argument(
         "--training.learning_rate", type=float, help="Learning rate for optimizer"
     )
     parser.add_argument(
@@ -70,6 +78,9 @@ def add_fine_tune_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
 def main() -> None:
     """Main function for the fine_tune.py script."""
     args = get_args(description=__doc__, add_extra_parser=add_fine_tune_parser)
+
+    # Enables TF32 tensor cores for fp32 matmuls (e.g. on A100/H100 GPUs)
+    torch.set_float32_matmul_precision("high")
 
     experiment_dir = args["experiment_dir"]
     assert os.path.exists(os.path.join(experiment_dir, "images/"))
@@ -109,6 +120,7 @@ def main() -> None:
         train_batches_per_epoch=train_batches_per_epoch,
         means=args["imagery"]["normalization_means"],
         stds=args["imagery"]["normalization_stds"],
+        preload=args["training"].get("preload", True),
     )
 
     # we include +1 to account for our 0 "not labeled" class
@@ -180,6 +192,7 @@ def main() -> None:
         devices=gpu_ids if gpu_ids else "auto",
         strategy=strategy,
         use_distributed_sampler=False,
+        precision="bf16-mixed",
     )
 
     trainer.fit(model=task, datamodule=datamodule)

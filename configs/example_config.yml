@@ -41,6 +41,10 @@ training:
   log_dir: logs/
   checkpoint_subdir: checkpoints/
   use_constraint_loss: false
+  preload: true  # Read all image/mask tiles into memory once instead of reading each
+                 # patch from disk. Patch reads decompress every GeoTIFF block they
+                 # overlap, so this is dramatically faster, but all tiles must fit in
+                 # RAM. Set to false for datasets too large to hold in memory.
 
 inference:
   output_subdir: "outputs/"
