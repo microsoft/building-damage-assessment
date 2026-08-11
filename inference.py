@@ -151,10 +151,8 @@ def main() -> None:
         y_coords = batch["y"]
         batch_size = images.shape[0]
         with torch.inference_mode():
-            prediction_logits = task.logits_for_prediction(task(images))
-            predictions = (
-                prediction_logits.argmax(axis=1).cpu().numpy().astype(np.uint8)
-            )
+            predictions = task(images)
+            predictions = predictions.argmax(axis=1).cpu().numpy().astype(np.uint8)
 
         for i in range(batch_size):
             height, width = predictions[i].shape

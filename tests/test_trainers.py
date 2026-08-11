@@ -9,18 +9,24 @@ import torch.nn.functional as F
 from bda.trainers import (
     CustomSemanticSegmentationTask,
     constraint_segmentation_loss,
+    constraint_segmentation_loss_components,
 )
 
 
 def _reference_loss(y_hat, y, no_damage_index, damaged_class_index):
     """Independent re-implementation used to check the helper."""
-    ce = F.cross_entropy(y_hat, y, ignore_index=0, reduction="none")
+    logits = y_hat[:, 1:no_damage_index]
+    targets = torch.full_like(y, -100)
     standard_mask = (y > 0) & (y != no_damage_index)
+    targets[standard_mask] = y[standard_mask] - 1
+    ce = F.cross_entropy(logits, targets, ignore_index=-100, reduction="none")
     loss = ce[standard_mask].mean()
     constraint_mask = y == no_damage_index
     if constraint_mask.any():
-        probs = F.softmax(y_hat, dim=1)
-        loss = loss + probs[:, damaged_class_index, :, :][constraint_mask].mean()
+        probs = F.softmax(logits, dim=1)
+        loss = loss + probs[:, damaged_class_index - 1, :, :][
+            constraint_mask
+        ].mean()
     return loss
 
 
@@ -54,8 +60,8 @@ def test_penalty_increases_with_predicted_damage_at_no_damage_pixels():
     y = torch.tensor([[[1, 4]]])  # shape (1, 1, 2)
 
     low = torch.zeros(1, 5, 1, 2)
-    low[0, 1, 0, 0] = 10.0   # confidently Background at the standard pixel
-    low[0, 1, 0, 1] = 10.0   # low P(Damaged Building) at the No Damage pixel
+    low[0, 1, 0, 0] = 10.0  # confidently Background at the standard pixel
+    low[0, 1, 0, 1] = 10.0  # low P(Damaged Building) at the No Damage pixel
 
     high = low.clone()
     high[0, 1, 0, 1] = 0.0
@@ -73,9 +79,61 @@ def test_no_constraint_pixels_equals_plain_ce():
     y = torch.tensor([[[0, 1, 2], [3, 1, 2], [2, 3, 1]]])  # no value 4
 
     got = constraint_segmentation_loss(y_hat, y, no_damage_index=4)
-    ce = F.cross_entropy(y_hat, y, ignore_index=0, reduction="none")
+    targets = y - 1
+    targets[y == 0] = -100
+    ce = F.cross_entropy(
+        y_hat[:, 1:4], targets, ignore_index=-100, reduction="none"
+    )
     expected = ce[(y > 0) & (y != 4)].mean()
     assert torch.allclose(got, expected)
+
+
+def test_constraint_loss_supports_model_without_weak_label_channel():
+    """New models have channels 0..3 while No Damage remains mask value 4."""
+    torch.manual_seed(3)
+    y_hat = torch.randn(1, 4, 2, 3)
+    y = torch.tensor([[[0, 1, 4], [2, 3, 4]]])
+
+    got = constraint_segmentation_loss(y_hat, y, no_damage_index=4)
+    expected = _reference_loss(y_hat, y, 4, 3)
+    assert torch.allclose(got, expected)
+
+
+def test_legacy_weak_label_logit_does_not_affect_constraint_loss():
+    """A legacy class-4 output cannot absorb the No Damage constraint."""
+    y = torch.tensor([[[1, 4]]])
+    low_weak_logit = torch.zeros(1, 5, 1, 2)
+    high_weak_logit = low_weak_logit.clone()
+    high_weak_logit[:, 4] = 100
+
+    low_loss = constraint_segmentation_loss(low_weak_logit, y, no_damage_index=4)
+    high_loss = constraint_segmentation_loss(high_weak_logit, y, no_damage_index=4)
+    assert torch.allclose(low_loss, high_loss)
+
+
+def test_unlabeled_channel_receives_no_gradient():
+    """Channel 0 remains visible but is excluded from CE and constraint losses."""
+    y_hat = torch.randn(1, 4, 2, 3, requires_grad=True)
+    y = torch.tensor([[[0, 1, 4], [2, 3, 4]]])
+
+    loss = constraint_segmentation_loss(y_hat, y, no_damage_index=4)
+    loss.backward()
+
+    assert torch.count_nonzero(y_hat.grad[:, 0]) == 0
+    assert torch.count_nonzero(y_hat.grad[:, 1:]) > 0
+
+
+def test_loss_components_sum_to_total():
+    """CE and constraint losses are independently observable."""
+    y_hat = torch.randn(1, 4, 2, 3)
+    y = torch.tensor([[[0, 1, 4], [2, 3, 4]]])
+
+    ce_loss, constraint_loss = constraint_segmentation_loss_components(
+        y_hat, y, no_damage_index=4
+    )
+    total = constraint_segmentation_loss(y_hat, y, no_damage_index=4)
+
+    assert torch.allclose(total, ce_loss + constraint_loss)
 
 
 def test_all_no_damage_patch_is_finite():

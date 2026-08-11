@@ -162,8 +162,9 @@ def main() -> None:
             f"{damaged_class_index}) at No Damage (={no_damage_index}) pixels"
         )
 
-    # Include output channel 0 for "not labeled". Under constraint training,
-    # "No Damage" is only a weak mask annotation and gets no output channel.
+    # Constraint models retain output channel 0 for "Unlabeled", followed by the
+    # deployable classes. "No Damage" is only a weak mask annotation and gets no
+    # output channel. Both non-deployable concepts are excluded from the losses.
     num_classes = len(classes) if use_constraint_loss else len(classes) + 1
 
     task = CustomSemanticSegmentationTask(
