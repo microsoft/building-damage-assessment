@@ -15,7 +15,7 @@ import tqdm
 from rasterio.enums import ColorInterp
 from torch.utils.data import DataLoader
 
-from bda.config import add_clip_range_args, get_args, resolve_clip_range
+from bda.config import get_args
 from bda.datasets import TileDataset, stack_samples
 from bda.samplers import GridGeoSampler
 from bda.preprocess import Preprocessor
@@ -55,8 +55,6 @@ def add_inference_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     # NOTE: we don't include some flags like `--imagery.normalization_means` or
     # `--imagery.normalization_stds` here because we assume that you won't want to
     # change them
-
-    parser = add_clip_range_args(parser)
 
     return parser
 
@@ -112,7 +110,6 @@ def main() -> None:
         training_mode=False,
         means=args["imagery"]["normalization_means"],
         stds=args["imagery"]["normalization_stds"],
-        clip_range=resolve_clip_range(args["imagery"]),
     )
 
     num_channels = args["imagery"].get("num_channels")

@@ -12,12 +12,7 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from bda.config import (
-    add_clip_range_args,
-    get_args,
-    normalize_gpu_ids,
-    resolve_clip_range,
-)
+from bda.config import get_args, normalize_gpu_ids
 from bda.datamodules import SegmentationDataModule
 from bda.trainers import CustomSemanticSegmentationTask
 
@@ -77,8 +72,6 @@ def add_fine_tune_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     # or `--imagery.normalization_stds` here either because we assume that you won't
     # want to change that
 
-    parser = add_clip_range_args(parser)
-
     return parser
 
 
@@ -128,7 +121,6 @@ def main() -> None:
         means=args["imagery"]["normalization_means"],
         stds=args["imagery"]["normalization_stds"],
         preload=args["training"].get("preload", True),
-        clip_range=resolve_clip_range(args["imagery"]),
     )
 
     classes = args["labels"]["classes"]
