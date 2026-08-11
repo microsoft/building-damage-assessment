@@ -30,6 +30,7 @@ class SegmentationDataModule(LightningDataModule):
         means=[0, 0, 0, 0],
         stds=[500, 500, 500, 500],
         preload=True,
+        clip_range=(0, 1),
     ):
         """Initialize the SegmentationDataModule class."""
         super().__init__()
@@ -43,8 +44,11 @@ class SegmentationDataModule(LightningDataModule):
 
         self.means = means
         self.stds = stds
+        self.clip_range = clip_range
 
-        self.preprocess = Preprocessor(training_mode=True, means=means, stds=stds)
+        self.preprocess = Preprocessor(
+            training_mode=True, means=means, stds=stds, clip_range=clip_range
+        )
 
         self.image_fns = []
         self.mask_fns = []

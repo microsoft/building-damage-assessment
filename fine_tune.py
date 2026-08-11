@@ -12,7 +12,12 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from bda.config import get_args, normalize_gpu_ids
+from bda.config import (
+    add_clip_range_args,
+    get_args,
+    normalize_gpu_ids,
+    resolve_clip_range,
+)
 from bda.datamodules import SegmentationDataModule
 from bda.trainers import CustomSemanticSegmentationTask
 
@@ -72,6 +77,8 @@ def add_fine_tune_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     # or `--imagery.normalization_stds` here either because we assume that you won't
     # want to change that
 
+    parser = add_clip_range_args(parser)
+
     return parser
 
 
@@ -121,11 +128,10 @@ def main() -> None:
         means=args["imagery"]["normalization_means"],
         stds=args["imagery"]["normalization_stds"],
         preload=args["training"].get("preload", True),
+        clip_range=resolve_clip_range(args["imagery"]),
     )
 
-    # we include +1 to account for our 0 "not labeled" class
     classes = args["labels"]["classes"]
-    num_classes = len(classes) + 1
 
     # The constraint loss penalizes the predicted "Damaged Building" probability
     # at "No Damage" pixels. Mask values are (index in classes) + 1, so the
@@ -145,10 +151,20 @@ def main() -> None:
             )
         no_damage_index = classes.index("No Damage") + 1
         damaged_class_index = classes.index("Damaged Building") + 1
+        if no_damage_index != len(classes):
+            raise ValueError(
+                "'No Damage' must be the final labels.classes entry when "
+                "training.use_constraint_loss is true. It is a weak label, not "
+                "a deployable output class."
+            )
         print(
             f"Constraint loss enabled: penalizing P(Damaged Building="
             f"{damaged_class_index}) at No Damage (={no_damage_index}) pixels"
         )
+
+    # Include output channel 0 for "not labeled". Under constraint training,
+    # "No Damage" is only a weak mask annotation and gets no output channel.
+    num_classes = len(classes) if use_constraint_loss else len(classes) + 1
 
     task = CustomSemanticSegmentationTask(
         model="unet",

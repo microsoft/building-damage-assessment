@@ -79,6 +79,65 @@ def normalize_gpu_ids(
     return ids
 
 
+def resolve_clip_range(
+    imagery_config: dict,
+) -> Optional[tuple[float, float]]:
+    """Resolve the imagery clip range from an ``imagery`` config block.
+
+    Both ``fine_tune.py`` and ``inference.py`` call this so that training and
+    inference always preprocess imagery identically.
+
+    Precedence: ``no_clip`` disables clipping outright, otherwise an explicit
+    ``clip_range`` is used. A missing key defaults to ``(0, 1)``, which is the
+    behavior from before this was configurable; an explicit ``clip_range: null``
+    disables clipping.
+
+    Args:
+        imagery_config (dict): The ``imagery`` block of a config dictionary.
+
+    Returns:
+        Optional[tuple[float, float]]: The ``(low, high)`` bounds, or ``None``
+            when clipping is disabled.
+    """
+    if imagery_config.get("no_clip"):
+        return None
+    clip_range = imagery_config.get("clip_range", (0, 1))
+    if clip_range is None:
+        return None
+    return (float(clip_range[0]), float(clip_range[1]))
+
+
+def add_clip_range_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Add the imagery clipping flags shared by fine_tune.py and inference.py.
+
+    These are registered on both scripts so that the same preprocessing can be
+    requested at training and inference time.
+
+    Args:
+        parser (argparse.ArgumentParser): The parser to add the arguments to.
+
+    Returns:
+        argparse.ArgumentParser: The parser.
+    """
+    parser.add_argument(
+        "--imagery.clip_range",
+        type=float,
+        nargs=2,
+        metavar=("LOW", "HIGH"),
+        help="Clip the normalized imagery to these bounds. Defaults to `0 1`,"
+        + " which suits min/max style normalization values but flattens every"
+        + " below-mean pixel when using true mean/std standardization. Use e.g."
+        + " `-3 3` for standardized imagery, or --imagery.no_clip to disable.",
+    )
+    parser.add_argument(
+        "--imagery.no_clip",
+        action="store_true",
+        default=None,  # keep None so it doesn't override the config file
+        help="Disable clipping of the normalized imagery entirely.",
+    )
+    return parser
+
+
 def _get_base_parser(description: Optional[str]) -> argparse.ArgumentParser:
     """The base argument parser for all scripts.
 
