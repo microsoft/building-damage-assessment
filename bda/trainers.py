@@ -16,20 +16,21 @@ import segmentation_models_pytorch as smp
 
 
 def _supervised_logits(y_hat: Tensor, no_damage_index: int) -> Tensor:
-    """Return only logits for classes that receive supervision.
+    """Return only the logits for classes that receive supervision.
 
-    Channel 0 is retained in the model output as the "Unlabeled" channel, but
-    excluded from both losses so it receives no gradient. ``No Damage`` is a
-    weak mask label rather than a model class; legacy checkpoints may still
-    contain a corresponding output channel, which is excluded here as well.
+    Channel 0 is retained in the model output as the "Unlabeled" channel but is
+    excluded here so that it never receives a gradient. "No Damage" is a weak
+    mask annotation rather than a class the model predicts, so it is the final
+    mask value and has no output channel of its own.
     """
     num_channels = y_hat.shape[1]
-    if not 1 < no_damage_index <= num_channels:
+    if no_damage_index != num_channels:
         raise ValueError(
-            f"no_damage_index must be in [2, {num_channels}], got "
-            f"{no_damage_index}"
+            f"no_damage_index ({no_damage_index}) must equal the number of output "
+            f"channels ({num_channels}); 'No Damage' is a weak label that must be "
+            "the final mask value and carry no output channel of its own."
         )
-    return y_hat[:, 1:no_damage_index]
+    return y_hat[:, 1:]
 
 
 def constraint_segmentation_loss_components(
@@ -122,17 +123,6 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
             del kwargs[
                 "ignore"
             ]  # workaround for https://github.com/microsoft/torchgeo/pull/2314, can be removed with torchgeo 0.7
-
-        # Checkpoints written before these arguments were renamed store the old
-        # names in `hyper_parameters`. `load_from_checkpoint` replays those saved
-        # values as keyword arguments, so translate them here instead of letting
-        # them fall through to the parent task, which would raise a TypeError.
-        legacy_no_damage = kwargs.pop("constraint_class_index", None)
-        if legacy_no_damage is not None and no_damage_index is None:
-            no_damage_index = legacy_no_damage
-        legacy_damaged = kwargs.pop("penalized_class_index", None)
-        if legacy_damaged is not None:
-            damaged_class_index = legacy_damaged
 
         super().__init__(*args, **kwargs)
 
