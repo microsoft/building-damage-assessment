@@ -6,7 +6,10 @@
 import torch
 import torch.nn.functional as F
 
-from bda.trainers import constraint_segmentation_loss
+from bda.trainers import (
+    CustomSemanticSegmentationTask,
+    constraint_segmentation_loss,
+)
 
 
 def _reference_loss(y_hat, y, no_damage_index, damaged_class_index):
@@ -96,3 +99,45 @@ def test_fully_unlabeled_patch_is_finite_zero():
     assert torch.isfinite(loss)
     assert loss.item() == 0.0
 
+
+
+def _make_task(**kwargs):
+    """Construct a task with the standard arguments used by ``fine_tune.py``."""
+    return CustomSemanticSegmentationTask(
+        model="unet",
+        backbone="resnext50_32x4d",
+        weights=None,
+        in_channels=4,
+        num_classes=5,
+        loss="ce",
+        ignore_index=0,
+        lr=1e-4,
+        **kwargs,
+    )
+
+
+def test_legacy_constraint_kwargs_are_translated():
+    """Checkpoints written before the rename replay the old hyperparameter names.
+
+    ``load_from_checkpoint`` passes saved hyperparameters back as keyword
+    arguments, so the old names must not reach the parent task (which would
+    raise a TypeError).
+    """
+    task = _make_task(
+        use_constraint_loss=True,
+        constraint_class_index=4,
+        penalized_class_index=3,
+    )
+    assert task.no_damage_index == 4
+    assert task.damaged_class_index == 3
+    # The renamed arguments are what get persisted going forward.
+    assert "constraint_class_index" not in task.hparams
+    assert "penalized_class_index" not in task.hparams
+
+
+def test_current_constraint_kwargs_take_precedence():
+    """Current argument names still work and win over the legacy ones."""
+    task = _make_task(
+        use_constraint_loss=True, no_damage_index=5, constraint_class_index=4
+    )
+    assert task.no_damage_index == 5

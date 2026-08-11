@@ -74,6 +74,18 @@ class CustomSemanticSegmentationTask(SemanticSegmentationTask):
             del kwargs[
                 "ignore"
             ]  # workaround for https://github.com/microsoft/torchgeo/pull/2314, can be removed with torchgeo 0.7
+
+        # Checkpoints written before these arguments were renamed store the old
+        # names in `hyper_parameters`. `load_from_checkpoint` replays those saved
+        # values as keyword arguments, so translate them here instead of letting
+        # them fall through to the parent task, which would raise a TypeError.
+        legacy_no_damage = kwargs.pop("constraint_class_index", None)
+        if legacy_no_damage is not None and no_damage_index is None:
+            no_damage_index = legacy_no_damage
+        legacy_damaged = kwargs.pop("penalized_class_index", None)
+        if legacy_damaged is not None:
+            damaged_class_index = legacy_damaged
+
         super().__init__(*args, **kwargs)
 
         self.use_constraint_loss = use_constraint_loss
