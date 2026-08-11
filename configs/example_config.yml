@@ -36,6 +36,8 @@ training:
   max_epochs: 40
   batch_size: 32
   gpu_id: 0
+  # gpu_ids: [0, 1, 2, 3]  # Optional: list of GPU ids for multi-GPU (DDP) training.
+                           # When set (with >1 id) it overrides gpu_id.
   log_dir: logs/
   checkpoint_subdir: checkpoints/
   use_constraint_loss: false

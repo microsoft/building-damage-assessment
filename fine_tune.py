@@ -4,14 +4,14 @@
 """Script for fine-tuning a segmentation model to detect damage in satellite imagery."""
 
 import argparse
+import glob
 import os
 
 import lightning.pytorch as pl
-import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from bda.config import get_args
+from bda.config import get_args, normalize_gpu_ids
 from bda.datamodules import SegmentationDataModule
 from bda.trainers import CustomSemanticSegmentationTask
 
@@ -29,6 +29,15 @@ def add_fine_tune_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         help="Name of the experiment (used for TensorBoard logging)",
     )
     parser.add_argument("--training.gpu_id", type=int, help="GPU id to use")
+    parser.add_argument(
+        "--training.gpu_ids",
+        type=int,
+        nargs="+",
+        help=(
+            "One or more GPU ids for multi-GPU (DDP) training, e.g."
+            " `--training.gpu_ids 0 1 2 3`. Overrides `--training.gpu_id`."
+        ),
+    )
     parser.add_argument("--training.batch_size", type=int, help="Batch size")
     parser.add_argument(
         "--training.learning_rate", type=float, help="Learning rate for optimizer"
@@ -67,7 +76,13 @@ def main() -> None:
     assert os.path.exists(os.path.join(experiment_dir, "masks/"))
 
     checkpoint_dir = os.path.join(experiment_dir, args["training"]["checkpoint_subdir"])
-    if os.path.exists(checkpoint_dir) and not args["overwrite"]:
+    # Check for existing *checkpoints*, not just the directory. Under DDP,
+    # Lightning re-runs this script in a subprocess per GPU; the main process
+    # creates the (empty) checkpoint directory before the workers start, so a
+    # bare directory-existence check would make every worker exit early and the
+    # run would hang.
+    existing_checkpoints = glob.glob(os.path.join(checkpoint_dir, "*.ckpt"))
+    if existing_checkpoints and not args["overwrite"]:
         print(
             "Experiment output files already exist, use --overwrite to overwrite them."
             + " Exiting."
@@ -75,18 +90,54 @@ def main() -> None:
         return
     os.makedirs(checkpoint_dir, exist_ok=True)
 
+    gpu_ids = normalize_gpu_ids(
+        args["training"].get("gpu_ids"), args["training"].get("gpu_id")
+    )
+    world_size = max(1, len(gpu_ids))
+
+    # `train_batches_per_epoch` is per-process under DDP, so divide it by the
+    # number of GPUs. This keeps the total batches seen per epoch (and thus the
+    # epoch wall-clock time) roughly constant as GPUs are added -- i.e. more GPUs
+    # makes each epoch faster instead of just processing proportionally more data.
+    train_batches_per_epoch = max(1, 1024 // world_size)
+
     datamodule = SegmentationDataModule(
         os.path.join(experiment_dir, "images/"),
         os.path.join(experiment_dir, "masks/"),
         batch_size=args["training"]["batch_size"],
-        num_workers=24,
-        train_batches_per_epoch=1024,
+        num_workers=4,
+        train_batches_per_epoch=train_batches_per_epoch,
         means=args["imagery"]["normalization_means"],
         stds=args["imagery"]["normalization_stds"],
     )
 
     # we include +1 to account for our 0 "not labeled" class
-    num_classes = len(args["labels"]["classes"]) + 1
+    classes = args["labels"]["classes"]
+    num_classes = len(classes) + 1
+
+    # The constraint loss penalizes the predicted "Damaged Building" probability
+    # at "No Damage" pixels. Mask values are (index in classes) + 1, so the
+    # "No Damage" value is config-dependent (4 without a "Cloud" class, 5 with
+    # one) and must be derived here rather than hardcoded in the trainer.
+    use_constraint_loss = args["training"]["use_constraint_loss"]
+    no_damage_index = None
+    damaged_class_index = 3
+    if use_constraint_loss:
+        missing = [c for c in ("No Damage", "Damaged Building") if c not in classes]
+        if missing:
+            raise ValueError(
+                "training.use_constraint_loss is true but labels.classes is "
+                f"missing {missing}. The constraint loss penalizes 'Damaged "
+                "Building' probability at 'No Damage' pixels, so both classes "
+                "are required."
+            )
+        no_damage_index = classes.index("No Damage") + 1
+        damaged_class_index = classes.index("Damaged Building") + 1
+        print(
+            f"Constraint loss enabled: penalizing P(Damaged Building="
+            f"{damaged_class_index}) at No Damage (={no_damage_index}) pixels"
+        )
+
     task = CustomSemanticSegmentationTask(
         model="unet",
         backbone="resnext50_32x4d",
@@ -97,7 +148,9 @@ def main() -> None:
         ignore_index=0,  # we use 0 as a "not labeled" class by convention
         lr=args["training"]["learning_rate"],
         patience=10,
-        use_constraint_loss=args["training"]["use_constraint_loss"],
+        use_constraint_loss=use_constraint_loss,
+        no_damage_index=no_damage_index,
+        damaged_class_index=damaged_class_index,
     )
 
     checkpoint_callback = ModelCheckpoint(
@@ -109,13 +162,24 @@ def main() -> None:
         save_dir=args["training"]["log_dir"], name=args["experiment_name"]
     )
 
+    # More than one GPU -> data-parallel training via DDP (Lightning's robust
+    # multi-GPU strategy). `use_distributed_sampler=False` keeps our custom
+    # RandomGeoSampler instead of Lightning injecting a DistributedSampler.
+    strategy = "ddp" if world_size > 1 else "auto"
+    print(
+        f"Training on GPU id(s): {gpu_ids} (strategy={strategy}, "
+        f"{train_batches_per_epoch} train batches/epoch/process)"
+    )
+
     trainer = pl.Trainer(
         callbacks=[checkpoint_callback],
         logger=[tb_logger],
         min_epochs=10,
         max_epochs=args["training"]["max_epochs"],
         accelerator="gpu",
-        devices=[args["training"]["gpu_id"]],
+        devices=gpu_ids if gpu_ids else "auto",
+        strategy=strategy,
+        use_distributed_sampler=False,
     )
 
     trainer.fit(model=task, datamodule=datamodule)
