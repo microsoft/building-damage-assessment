@@ -171,16 +171,19 @@ def main(args):
         f.writerecords(rows)
 
     print(f"Output written to {args.output_fn}")
-    damage_vals_per_geom = np.array(damage_vals_per_geom)
-    breakpoints = [0, 0.2, 0.4, 0.6, 0.8, 1.0001]
-    for i in range(1, len(breakpoints)):
-        count = np.sum(
-            (damage_vals_per_geom[:, 0] >= breakpoints[i - 1])
-            & (damage_vals_per_geom[:, 0] < breakpoints[i])
-        )
-        print(
-            f"- {count} buildings with damage fraction between {breakpoints[i-1]*100:0.0f}% and {breakpoints[i]*100:0.0f}%"
-        )
+    if len(damage_vals_per_geom) > 0:
+        damage_vals_per_geom = np.array(damage_vals_per_geom)
+        breakpoints = [0, 0.2, 0.4, 0.6, 0.8, 1.0001]
+        for i in range(1, len(breakpoints)):
+            count = np.sum(
+                (damage_vals_per_geom[:, 0] >= breakpoints[i - 1])
+                & (damage_vals_per_geom[:, 0] < breakpoints[i])
+            )
+            print(
+                f"- {count} buildings with damage fraction between {breakpoints[i-1]*100:0.0f}% and {breakpoints[i]*100:0.0f}%"
+            )
+    else:
+        print("No buildings found to report statistics.")
 
 
 if __name__ == "__main__":
