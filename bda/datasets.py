@@ -57,6 +57,7 @@ class TileDataset(Dataset):
         transforms=None,
         sanity_check=True,
         num_channels: int = None,
+        preload: bool = False,
     ):
         self.image_fns = image_fns
         self.mask_fns = mask_fns
@@ -78,6 +79,37 @@ class TileDataset(Dataset):
 
         self.transforms = transforms
 
+        # Reading a patch from a compressed GeoTIFF forces GDAL to decompress every
+        # block the patch overlaps, which dominates the cost of a training step. The
+        # tiles are small enough to hold in memory, so we read them once up front and
+        # crop from the resulting arrays instead.
+        self.image_cache = None
+        self.mask_cache = None
+        if preload:
+            self._preload()
+
+    def _preload(self):
+        """Read every tile into memory so patches can be cropped without decoding."""
+        print("Preloading tiles into memory...")
+        self.image_cache = []
+        for fns in self.image_fns:
+            stack = []
+            for fn in fns:
+                with rasterio.open(fn) as f:
+                    stack.append(f.read())
+            self.image_cache.append(np.concatenate(stack, axis=0))
+
+        if self.mask_fns is not None:
+            self.mask_cache = []
+            for fn in self.mask_fns:
+                with rasterio.open(fn) as f:
+                    self.mask_cache.append(f.read())
+
+        num_bytes = sum(a.nbytes for a in self.image_cache)
+        if self.mask_cache is not None:
+            num_bytes += sum(a.nbytes for a in self.mask_cache)
+        print(f"Preloaded {len(self.image_fns)} tiles ({num_bytes / 1e6:.0f} MB)")
+
     def __len__(self):
         return len(self.image_fns)
 
@@ -89,25 +121,32 @@ class TileDataset(Dataset):
             "x": x,
         }
 
-        window = rasterio.windows.Window(x, y, patch_size, patch_size)
-
         # Load imagery
-        stack = []
-        for j in range(len(self.image_fns[i])):
-            image_fn = self.image_fns[i][j]
-            with rasterio.open(image_fn) as f:
-                image = f.read(window=window)
-            stack.append(image)
-        stack = np.concatenate(stack, axis=0)
+        if self.image_cache is not None:
+            stack = self.image_cache[i][:, y : y + patch_size, x : x + patch_size].copy()
+        else:
+            window = rasterio.windows.Window(x, y, patch_size, patch_size)
+            stack = []
+            for j in range(len(self.image_fns[i])):
+                image_fn = self.image_fns[i][j]
+                with rasterio.open(image_fn) as f:
+                    image = f.read(window=window)
+                stack.append(image)
+            stack = np.concatenate(stack, axis=0)
         if self.num_channels is not None:
             stack = stack[:self.num_channels]
         sample["image"] = torch.from_numpy(stack).float()
 
         # Load mask
         if self.mask_fns is not None:
-            mask_fn = self.mask_fns[i]
-            with rasterio.open(mask_fn) as f:
-                mask = f.read(window=window)
+            if self.mask_cache is not None:
+                mask = self.mask_cache[i][
+                    :, y : y + patch_size, x : x + patch_size
+                ].copy()
+            else:
+                mask_fn = self.mask_fns[i]
+                with rasterio.open(mask_fn) as f:
+                    mask = f.read(window=rasterio.windows.Window(x, y, patch_size, patch_size))
             sample["mask"] = torch.from_numpy(mask).long()
 
         if self.transforms is not None:

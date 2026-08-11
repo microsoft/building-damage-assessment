@@ -29,6 +29,7 @@ class SegmentationDataModule(LightningDataModule):
         val_batches_per_epoch=32,
         means=[0, 0, 0, 0],
         stds=[500, 500, 500, 500],
+        preload=True,
     ):
         """Initialize the SegmentationDataModule class."""
         super().__init__()
@@ -38,6 +39,7 @@ class SegmentationDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.train_batches_per_epoch = train_batches_per_epoch
         self.val_batches_per_epoch = val_batches_per_epoch
+        self.preload = preload
 
         self.means = means
         self.stds = stds
@@ -59,7 +61,11 @@ class SegmentationDataModule(LightningDataModule):
         """Set up the datasets."""
         print(f"setting up {stage}")
         self.ds = TileDataset(
-            self.image_fns, self.mask_fns, transforms=self.preprocess, sanity_check=True
+            self.image_fns,
+            self.mask_fns,
+            transforms=self.preprocess,
+            sanity_check=True,
+            preload=self.preload,
         )
 
     def train_dataloader(self):
@@ -76,6 +82,8 @@ class SegmentationDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
+            persistent_workers=self.num_workers > 0,
+            pin_memory=True,
         )
 
     def val_dataloader(self):
@@ -92,6 +100,8 @@ class SegmentationDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
+            persistent_workers=self.num_workers > 0,
+            pin_memory=True,
         )
 
     def plot(self, sample):

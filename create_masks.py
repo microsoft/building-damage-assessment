@@ -205,6 +205,10 @@ def create_mask_for_labels(
 
     ##########
     # Warp the labels to the CRS of the input image
+    # The GeoJSON driver refuses to overwrite an existing file, so we clear any
+    # stale output left behind by an interrupted run
+    if os.path.exists(output_warped_label_fn):
+        os.remove(output_warped_label_fn)
     command = [
         "ogr2ogr",
         "-f",
@@ -314,7 +318,7 @@ def create_mask_for_labels(
             str(class_name_to_idx_map[class_names[i]]),
             "-where",
             f"class='{class_names[i]}'",
-            input_label_fn,
+            output_warped_label_fn,
             output_mask_fn,
         ]
         assert subprocess.call(command) == 0
