@@ -8,8 +8,10 @@ import os
 import sys
 
 import fiona
+import fiona.transform
 import numpy as np
 import rasterio
+import rasterio.errors
 import rasterio.mask
 from tqdm import tqdm
 
@@ -51,25 +53,48 @@ def main() -> None:
             + " overwrite."
         )
         sys.exit(1)
+    if os.path.exists(args.output_fn) and args.overwrite:
+        os.remove(args.output_fn)
 
     output_dir = os.path.dirname(args.output_fn)
-    if not os.path.exists(output_dir):
+    if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     # Intersect the DPM with the building footprint layer
     new_features = []
     with rasterio.open(args.input_dpm_fn) as raster_f:
+        raster_crs = raster_f.crs.to_string()
         with fiona.open(args.input_buildings_fn) as f:
-            assert f.crs == raster_f.crs
+            footprints_crs = f.crs.to_string() if f.crs else raster_crs
             schema = f.schema.copy()
-            crs = f.crs.to_string()
+            crs = footprints_crs
             for feature in tqdm(f):
                 geom = feature["geometry"]
-                mask, _ = rasterio.mask.mask(
-                    raster_f, [geom], crop=True, all_touched=True
-                )
+                if geom is None:
+                    continue
+
+                if footprints_crs != raster_crs:
+                    geom_in_raster_crs = fiona.transform.transform_geom(
+                        footprints_crs, raster_crs, geom
+                    )
+                else:
+                    geom_in_raster_crs = geom
+
+                avg_dpm = 0.0
+                try:
+                    mask, _ = rasterio.mask.mask(
+                        raster_f, [geom_in_raster_crs], crop=True, all_touched=True, filled=False
+                    )
+                    compressed = mask.compressed()
+                    valid_vals = compressed[~np.isnan(compressed)]
+                    if len(valid_vals) > 0:
+                        avg_dpm = float(np.mean(valid_vals))
+                except (ValueError, rasterio.errors.RasterioError):
+                    # Geometry does not overlap raster or has no valid pixels
+                    pass
+
                 properties = dict(feature["properties"])
-                properties["average_dpm"] = float(np.mean(mask))
+                properties["average_dpm"] = avg_dpm
                 new_features.append(fiona.Feature(geometry=geom, properties=properties))
 
     # Write the output
@@ -99,10 +124,13 @@ def main() -> None:
 
     breakpoints: list[float] = [0, 0.2, 0.4, 0.6, 0.8, 1.0001]
     for i in range(1, len(breakpoints)):
-        count = np.sum(
-            (damage_vals_per_geom_arr >= breakpoints[i - 1])
-            & (damage_vals_per_geom_arr < breakpoints[i])
-        )
+        if len(damage_vals_per_geom_arr) > 0:
+            count = np.sum(
+                (damage_vals_per_geom_arr >= breakpoints[i - 1])
+                & (damage_vals_per_geom_arr < breakpoints[i])
+            )
+        else:
+            count = 0
 
         lower_pct = f"{breakpoints[i-1]*100:0.0f}"
         upper_pct = f"{breakpoints[i]*100:0.0f}"
